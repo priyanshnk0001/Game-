@@ -2,6 +2,9 @@ import React, { Suspense } from 'react';
 import { Sky } from '@react-three/drei';
 import { useGameState } from '../hooks/useGameState';
 import { TacticalMap } from './environment/TacticalMap';
+import { JungleMap } from './environment/JungleMap';
+import { SnowMap } from './environment/SnowMap';
+import { MAPS } from '../config/maps';
 import { RealisticWeaponPickup } from './weapons/RealisticWeaponPickup';
 import { RealisticPlayer } from './player/RealisticPlayer';
 import { BulletManager } from './combat/BulletManager';
@@ -17,30 +20,33 @@ interface SceneProps {
 export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
   const state = useGameState();
   const activeId = state.activePlayerId;
+  const activeMapId = state.activeMapId || 'battle-area';
+  const activeMapDef = MAPS[activeMapId] || MAPS['battle-area'];
+  const sky = activeMapDef.sky;
 
   return (
     <>
       {/* 1. Realistic Sky & Atmospheric Depth */}
       <Sky
         distance={450000}
-        sunPosition={[45, 30, 25]}
-        inclination={0.55}
-        azimuth={0.25}
-        turbidity={8}
-        rayleigh={1.2}
-        mieCoefficient={0.005}
-        mieDirectionalG={0.8}
+        sunPosition={sky.sunPosition}
+        inclination={sky.inclination}
+        azimuth={sky.azimuth}
+        turbidity={sky.turbidity}
+        rayleigh={sky.rayleigh}
+        mieCoefficient={sky.mieCoefficient}
+        mieDirectionalG={sky.mieDirectionalG}
       />
-      <fog attach="fog" args={['#1c212a', 25, 80]} />
+      <fog attach="fog" args={[sky.fogColor, sky.fogNear, sky.fogFar]} />
 
       {/* 2. Realistic Sunlight & Natural Ambient Fill (PBR) */}
-      <ambientLight intensity={0.55} color="#8fa3b5" />
+      <ambientLight intensity={sky.ambientIntensity} color={sky.ambientColor} />
 
       {/* Primary Directional Sunlight with High-Resolution Shadows */}
       <directionalLight
-        position={[35, 45, 25]}
-        intensity={1.75}
-        color="#fff5e6"
+        position={sky.sunPosition}
+        intensity={sky.sunIntensity}
+        color={sky.sunColor}
         castShadow
         shadow-mapSize={[2048, 2048]}
         shadow-camera-left={-32}
@@ -54,12 +60,14 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
       {/* Subtle Sky Bounce Light */}
       <directionalLight
         position={[-20, 15, -20]}
-        intensity={0.35}
-        color="#70889e"
+        intensity={sky.skyBounceIntensity}
+        color={sky.skyBounceColor}
       />
 
       {/* 3. Believable Tactical Combat Environment Map */}
-      <TacticalMap />
+      {activeMapId === 'battle-area' && <TacticalMap />}
+      {activeMapId === 'jungle-ops' && <JungleMap />}
+      {activeMapId === 'snow-ops' && <SnowMap />}
 
       {/* 4. Realistic Ground Weapons resting on gear crates */}
       <Suspense fallback={null}>

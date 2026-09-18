@@ -31,6 +31,7 @@ export const WEAPON_SPAWNS: Record<'gun1' | 'gun2', {
   fireRateMs: number;
   tracerColor: string;
   magazineCapacity: number;
+  reserveAmmo: number;
 }> = {
   gun1: {
     id: 'gun1',
@@ -42,6 +43,7 @@ export const WEAPON_SPAWNS: Record<'gun1' | 'gun2', {
     fireRateMs: 180,
     tracerColor: '#34d399',
     magazineCapacity: 30,
+    reserveAmmo: 90,
   },
   gun2: {
     id: 'gun2',
@@ -53,14 +55,15 @@ export const WEAPON_SPAWNS: Record<'gun1' | 'gun2', {
     fireRateMs: 110,
     tracerColor: '#60a5fa',
     magazineCapacity: 25,
+    reserveAmmo: 90,
   },
 };
 
 export const MAP_BOUNDS = {
-  minX: -26,
-  maxX: 26,
-  minZ: -26,
-  maxZ: 26,
+  minX: -27.6,
+  maxX: 27.6,
+  minZ: -27.6,
+  maxZ: 27.6,
 };
 
 // Cover objects / building boxes for world geometry and cover play
@@ -100,15 +103,13 @@ export const MAP_OBSTACLES: MapObstacle[] = [
   // 5. Command Bunker 1
   { id: 'bunker1_back_wall', position: [-16, 1.8, -14], size: [7.5, 3.6, 0.6], rotationY: 0, type: 'building' },
   { id: 'bunker1_left_wall', position: [-19.45, 1.8, -10.5], size: [0.6, 3.6, 7.0], rotationY: 0, type: 'building' },
-  { id: 'bunker1_right_wall_lower', position: [-12.55, 1.0, -10.5], size: [0.6, 2.0, 7.0], rotationY: 0, type: 'building' },
-  { id: 'bunker1_right_wall_upper', position: [-12.55, 2.9, -10.5], size: [0.6, 1.4, 7.0], rotationY: 0, type: 'building' },
+  { id: 'bunker1_right_wall', position: [-12.55, 1.8, -10.5], size: [0.6, 3.6, 7.0], rotationY: 0, type: 'building' },
   { id: 'bunker1_roof', position: [-16, 3.75, -10.5], size: [8.0, 0.4, 7.6], rotationY: 0, type: 'building' },
 
   // 6. Observation Shoot House 2
   { id: 'bunker2_back_wall', position: [16, 1.8, 14], size: [7.5, 3.6, 0.6], rotationY: 0, type: 'building' },
   { id: 'bunker2_right_wall', position: [19.45, 1.8, 10.5], size: [0.6, 3.6, 7.0], rotationY: 0, type: 'building' },
-  { id: 'bunker2_left_wall_lower', position: [12.55, 1.0, 10.5], size: [0.6, 2.0, 7.0], rotationY: 0, type: 'building' },
-  { id: 'bunker2_left_wall_upper', position: [12.55, 2.9, 10.5], size: [0.6, 1.4, 7.0], rotationY: 0, type: 'building' },
+  { id: 'bunker2_left_wall', position: [12.55, 1.8, 10.5], size: [0.6, 3.6, 7.0], rotationY: 0, type: 'building' },
   { id: 'bunker2_roof', position: [16, 3.75, 10.5], size: [8.0, 0.4, 7.6], rotationY: 0, type: 'building' },
 
   // 7. Ammo Crates

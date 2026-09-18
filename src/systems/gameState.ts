@@ -15,12 +15,17 @@ import {
   BulletTracer,
   MatchState,
   HitFeedbackData,
+  MapId,
 } from '../types/game';
 import { soundManager } from './sound';
+import { MAPS, MAP_OBSTACLES } from '../config/maps';
+import { CollisionWorld } from '../game/collision/CollisionWorld';
 
 type Listener = () => void;
 
 class GameStateManager {
+  public activeMapId: MapId = 'battle-area';
+
   public players: Record<PlayerId, PlayerState> = {
     player1: {
       id: 'player1',
@@ -402,6 +407,63 @@ class GameStateManager {
     }
   }
 
+  switchMap(mapId: MapId) {
+    if (!MAPS[mapId]) return;
+    this.activeMapId = mapId;
+    const mapDef = MAPS[mapId];
+
+    // Update physical collision boundaries and obstacles
+    CollisionWorld.setMap(MAP_OBSTACLES[mapId], mapDef.bounds);
+
+    // Cancel any active reloads
+    Object.keys(this.reloadTimeouts).forEach((k) => {
+      const pid = k as PlayerId;
+      if (this.reloadTimeouts[pid]) {
+        clearTimeout(this.reloadTimeouts[pid]!);
+        this.reloadTimeouts[pid] = null;
+      }
+    });
+
+    // Reset players at new map spawn points
+    const p1Spawn = mapDef.playerSpawns.player1;
+    const p2Spawn = mapDef.playerSpawns.player2;
+    const p1Rot = mapDef.playerSpawnRotations?.player1 ?? 0;
+    const p2Rot = mapDef.playerSpawnRotations?.player2 ?? Math.PI;
+
+    this.players.player1.position = [...p1Spawn];
+    this.players.player1.rotationY = p1Rot;
+    this.players.player1.pitch = 0;
+    this.players.player1.health = PLAYER_MAX_HEALTH;
+    this.players.player1.isDead = false;
+    this.players.player1.isReloading = false;
+    this.players.player1.isAiming = false;
+    this.players.player1.isFiring = false;
+
+    this.players.player2.position = [...p2Spawn];
+    this.players.player2.rotationY = p2Rot;
+    this.players.player2.pitch = 0;
+    this.players.player2.health = PLAYER_MAX_HEALTH;
+    this.players.player2.isDead = false;
+    this.players.player2.isReloading = false;
+    this.players.player2.isAiming = false;
+    this.players.player2.isFiring = false;
+
+    // Reposition ground weapons to new map spawn locations
+    this.groundWeapons.gun1.position = [...mapDef.weaponSpawns.gun1];
+    this.groundWeapons.gun2.position = [...mapDef.weaponSpawns.gun2];
+
+    // Reset match state and tracers
+    this.matchState = {
+      status: 'playing',
+      winner: null,
+      eliminationMessage: null,
+    };
+    this.bullets = [];
+    this.hitFeedbacks = [];
+
+    this.notify();
+  }
+
   restartMatch() {
     Object.keys(this.reloadTimeouts).forEach((k) => {
       const pid = k as PlayerId;
@@ -411,11 +473,17 @@ class GameStateManager {
       }
     });
 
+    const mapDef = MAPS[this.activeMapId] || MAPS['battle-area'];
+    const p1Spawn = mapDef.playerSpawns.player1;
+    const p2Spawn = mapDef.playerSpawns.player2;
+    const p1Rot = mapDef.playerSpawnRotations?.player1 ?? 0;
+    const p2Rot = mapDef.playerSpawnRotations?.player2 ?? Math.PI;
+
     this.players.player1 = {
       id: 'player1',
       name: 'PLAYER 1',
-      position: [...PLAYER_SPAWNS.player1],
-      rotationY: 0,
+      position: [...p1Spawn],
+      rotationY: p1Rot,
       pitch: 0,
       health: PLAYER_MAX_HEALTH,
       isDead: false,
@@ -439,8 +507,8 @@ class GameStateManager {
     this.players.player2 = {
       id: 'player2',
       name: 'PLAYER 2',
-      position: [...PLAYER_SPAWNS.player2],
-      rotationY: Math.PI,
+      position: [...p2Spawn],
+      rotationY: p2Rot,
       pitch: 0,
       health: PLAYER_MAX_HEALTH,
       isDead: false,
@@ -465,7 +533,7 @@ class GameStateManager {
       id: 'gun1',
       name: WEAPON_SPAWNS.gun1.name,
       type: WEAPON_SPAWNS.gun1.type,
-      position: [...WEAPON_SPAWNS.gun1.position],
+      position: [...mapDef.weaponSpawns.gun1],
       color: WEAPON_SPAWNS.gun1.color,
       accentColor: WEAPON_SPAWNS.gun1.accentColor,
       isPickedUp: false,
@@ -476,7 +544,7 @@ class GameStateManager {
       id: 'gun2',
       name: WEAPON_SPAWNS.gun2.name,
       type: WEAPON_SPAWNS.gun2.type,
-      position: [...WEAPON_SPAWNS.gun2.position],
+      position: [...mapDef.weaponSpawns.gun2],
       color: WEAPON_SPAWNS.gun2.color,
       accentColor: WEAPON_SPAWNS.gun2.accentColor,
       isPickedUp: false,

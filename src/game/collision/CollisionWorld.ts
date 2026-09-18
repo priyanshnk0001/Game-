@@ -6,12 +6,15 @@ export interface CollisionBox {
   position: [number, number, number]; // Center [x, y, z]
   size: [number, number, number];     // Dimensions [width, height, depth]
   rotationY: number;                  // Rotation around Y axis in radians
-  type: 'wall' | 'barrier' | 'bunker' | 'container' | 'building' | 'crate' | 'pillar';
+  type: 'wall' | 'barrier' | 'bunker' | 'container' | 'building' | 'crate' | 'pillar' | 'rock' | 'tree';
 }
 
 export class CollisionWorld {
-  // Master registry of all physical map structures matching TacticalMap.tsx exactly
-  public static readonly obstacles: CollisionBox[] = [
+  // Current active map boundary limits
+  public static currentBounds = { ...MAP_BOUNDS };
+
+  // Master registry of all physical map structures
+  public static obstacles: CollisionBox[] = [
     // 1. Concrete Perimeter Walls (56m x 4m x 0.8m)
     { id: 'perim_north', position: [0, 2.0, -28], size: [56, 4.0, 0.8], rotationY: 0, type: 'wall' },
     { id: 'perim_south', position: [0, 2.0, 28], size: [56, 4.0, 0.8], rotationY: 0, type: 'wall' },
@@ -39,15 +42,13 @@ export class CollisionWorld {
     // 5. Command Bunker Shoot House (Mid-Left, Base at [-16, 0, -14])
     { id: 'bunker1_back_wall', position: [-16, 1.8, -14], size: [7.5, 3.6, 0.6], rotationY: 0, type: 'building' },
     { id: 'bunker1_left_wall', position: [-19.45, 1.8, -10.5], size: [0.6, 3.6, 7.0], rotationY: 0, type: 'building' },
-    { id: 'bunker1_right_wall_lower', position: [-12.55, 1.0, -10.5], size: [0.6, 2.0, 7.0], rotationY: 0, type: 'building' },
-    { id: 'bunker1_right_wall_upper', position: [-12.55, 2.9, -10.5], size: [0.6, 1.4, 7.0], rotationY: 0, type: 'building' },
+    { id: 'bunker1_right_wall', position: [-12.55, 1.8, -10.5], size: [0.6, 3.6, 7.0], rotationY: 0, type: 'building' },
     { id: 'bunker1_roof', position: [-16, 3.75, -10.5], size: [8.0, 0.4, 7.6], rotationY: 0, type: 'building' },
 
     // 6. Observation Shoot House (Mid-Right, Base at [16, 0, 14])
     { id: 'bunker2_back_wall', position: [16, 1.8, 14], size: [7.5, 3.6, 0.6], rotationY: 0, type: 'building' },
     { id: 'bunker2_right_wall', position: [19.45, 1.8, 10.5], size: [0.6, 3.6, 7.0], rotationY: 0, type: 'building' },
-    { id: 'bunker2_left_wall_lower', position: [12.55, 1.0, 10.5], size: [0.6, 2.0, 7.0], rotationY: 0, type: 'building' },
-    { id: 'bunker2_left_wall_upper', position: [12.55, 2.9, 10.5], size: [0.6, 1.4, 7.0], rotationY: 0, type: 'building' },
+    { id: 'bunker2_left_wall', position: [12.55, 1.8, 10.5], size: [0.6, 3.6, 7.0], rotationY: 0, type: 'building' },
     { id: 'bunker2_roof', position: [16, 3.75, 10.5], size: [8.0, 0.4, 7.6], rotationY: 0, type: 'building' },
 
     // 7. Military Ammo Crate Stacks
@@ -80,8 +81,8 @@ export class CollisionWorld {
       // Only surfaces beneath or within step reach of player's feet can support them
       if (topY > currentFeetY + 0.38) continue;
 
-      const cos = Math.cos(-obs.rotationY);
-      const sin = Math.sin(-obs.rotationY);
+      const cos = Math.cos(obs.rotationY);
+      const sin = Math.sin(obs.rotationY);
       const dx = x - obs.position[0];
       const dz = z - obs.position[2];
 
@@ -102,7 +103,7 @@ export class CollisionWorld {
   }
 
   /**
-   * Continuous Capsule-vs-Obstacles collision solver with step traversal and wall sliding.
+   * Continuous Capsule-vs-Obstacles collision solver with step traversal, corner relaxation, and wall sliding.
    */
   public static resolveCapsuleMovement(
     startX: number,
@@ -128,96 +129,110 @@ export class CollisionWorld {
       let nextX = curX + curVx * subDt;
       let nextZ = curZ + curVz * subDt;
 
-      // Check collision against all registered obstacles
-      for (const obs of this.obstacles) {
-        const topY = obs.position[1] + obs.size[1] / 2;
-        const bottomY = obs.position[1] - obs.size[1] / 2;
+      // Multi-pass relaxation loop (up to 4 passes) to resolve adjacent walls and corners cleanly
+      for (let pass = 0; pass < 4; pass++) {
+        let hadCollision = false;
 
-        // If player is safely above or below the obstacle, no horizontal collision
-        if (curY >= topY - 0.02) continue;
-        if (curY + height <= bottomY + 0.05) continue;
+        // Check collision against all registered obstacles
+        for (const obs of this.obstacles) {
+          const topY = obs.position[1] + obs.size[1] / 2;
+          const bottomY = obs.position[1] - obs.size[1] / 2;
 
-        // Transform test position into obstacle local coordinate frame
-        const cos = Math.cos(-obs.rotationY);
-        const sin = Math.sin(-obs.rotationY);
-        const dx = nextX - obs.position[0];
-        const dz = nextZ - obs.position[2];
+          // If player is safely above or below the obstacle, no horizontal collision
+          if (curY >= topY - 0.02) continue;
+          if (curY + height <= bottomY + 0.05) continue;
 
-        const lx = cos * dx - sin * dz;
-        const lz = sin * dx + cos * dz;
+          // Transform test position into obstacle local coordinate frame (Three.js right-hand Y rotation)
+          const cos = Math.cos(obs.rotationY);
+          const sin = Math.sin(obs.rotationY);
+          const dx = nextX - obs.position[0];
+          const dz = nextZ - obs.position[2];
 
-        const halfX = obs.size[0] / 2;
-        const halfZ = obs.size[2] / 2;
+          // Inverse rotation matrix:
+          const lx = cos * dx - sin * dz;
+          const lz = sin * dx + cos * dz;
 
-        // Step-up traversal: if obstacle is low enough to step over
-        const stepDelta = topY - curY;
-        if (stepDelta > 0 && stepDelta <= maxStepHeight) {
-          // If within horizontal footprint, step onto obstacle top
-          if (Math.abs(lx) <= halfX + radius && Math.abs(lz) <= halfZ + radius) {
-            curY = topY;
-            continue; // Successfully stepped up
-          }
-        }
+          const halfX = obs.size[0] / 2;
+          const halfZ = obs.size[2] / 2;
 
-        // Standard solid collision: clamp to box boundaries
-        const clampedX = Math.max(-halfX, Math.min(halfX, lx));
-        const clampedZ = Math.max(-halfZ, Math.min(halfZ, lz));
-
-        const diffX = lx - clampedX;
-        const diffZ = lz - clampedZ;
-        const distSq = diffX * diffX + diffZ * diffZ;
-
-        if (distSq < radius * radius) {
-          let nx = 0;
-          let nz = 0;
-          let overlap = 0;
-
-          if (distSq > 1e-8) {
-            const dist = Math.sqrt(distSq);
-            overlap = radius - dist;
-            nx = diffX / dist;
-            nz = diffZ / dist;
-          } else {
-            // Capsule center is inside the box: push out along closest face
-            const pushX = (halfX - Math.abs(lx)) + radius;
-            const pushZ = (halfZ - Math.abs(lz)) + radius;
-            if (pushX < pushZ) {
-              nx = lx >= 0 ? 1 : -1;
-              nz = 0;
-              overlap = pushX;
-            } else {
-              nx = 0;
-              nz = lz >= 0 ? 1 : -1;
-              overlap = pushZ;
+          // Step-up traversal: only for low step-able obstacles (crates, low barriers), never walls/buildings/containers
+          const canStepUp = obs.type !== 'wall' && obs.type !== 'building' && obs.type !== 'container';
+          if (canStepUp) {
+            const stepDelta = topY - curY;
+            if (stepDelta > 0 && stepDelta <= maxStepHeight) {
+              // If within horizontal footprint, step onto obstacle top
+              if (Math.abs(lx) <= halfX + radius && Math.abs(lz) <= halfZ + radius) {
+                curY = topY;
+                continue; // Successfully stepped up
+              }
             }
           }
 
-          // Push local position out
-          const resolvedLx = lx + nx * overlap;
-          const resolvedLz = lz + nz * overlap;
+          // Standard solid collision: clamp to box boundaries in local coordinate frame
+          const clampedX = Math.max(-halfX, Math.min(halfX, lx));
+          const clampedZ = Math.max(-halfZ, Math.min(halfZ, lz));
 
-          // Transform local normal to world space
-          const cosWorld = Math.cos(obs.rotationY);
-          const sinWorld = Math.sin(obs.rotationY);
-          const worldNx = cosWorld * nx - sinWorld * nz;
-          const worldNz = sinWorld * nx + cosWorld * nz;
+          const diffX = lx - clampedX;
+          const diffZ = lz - clampedZ;
+          const distSq = diffX * diffX + diffZ * diffZ;
 
-          // Tangential wall sliding: cancel velocity component directed into the obstacle
-          const dot = curVx * worldNx + curVz * worldNz;
-          if (dot < 0) {
-            curVx -= dot * worldNx;
-            curVz -= dot * worldNz;
+          if (distSq < radius * radius) {
+            hadCollision = true;
+            let nx = 0;
+            let nz = 0;
+            let overlap = 0;
+
+            if (distSq > 1e-8) {
+              const dist = Math.sqrt(distSq);
+              overlap = radius - dist;
+              nx = diffX / dist;
+              nz = diffZ / dist;
+            } else {
+              // Capsule center is inside the box: push out along closest local face
+              const pushX = (halfX - Math.abs(lx)) + radius;
+              const pushZ = (halfZ - Math.abs(lz)) + radius;
+              if (pushX < pushZ) {
+                nx = lx >= 0 ? 1 : -1;
+                nz = 0;
+                overlap = pushX;
+              } else {
+                nx = 0;
+                nz = lz >= 0 ? 1 : -1;
+                overlap = pushZ;
+              }
+            }
+
+            // Push local position out
+            const resolvedLx = lx + nx * overlap;
+            const resolvedLz = lz + nz * overlap;
+
+            // Transform local normal to world space:
+            // [worldNx, worldNz] = [nx*cos + nz*sin, -nx*sin + nz*cos]
+            const worldNx = cos * nx + sin * nz;
+            const worldNz = -sin * nx + cos * nz;
+
+            // Tangential wall sliding: cancel velocity component directed into the obstacle
+            const dot = curVx * worldNx + curVz * worldNz;
+            if (dot < 0) {
+              curVx -= dot * worldNx;
+              curVz -= dot * worldNz;
+            }
+
+            // Transform resolved local position back to world space:
+            // [nextX, nextZ] = obs.pos + [resolvedLx*cos + resolvedLz*sin, -resolvedLx*sin + resolvedLz*cos]
+            nextX = obs.position[0] + (cos * resolvedLx + sin * resolvedLz);
+            nextZ = obs.position[2] + (-sin * resolvedLx + cos * resolvedLz);
           }
+        }
 
-          // Transform resolved local position back to world space
-          nextX = obs.position[0] + (cosWorld * resolvedLx - sinWorld * resolvedLz);
-          nextZ = obs.position[2] + (sinWorld * resolvedLx + cosWorld * resolvedLz);
+        if (!hadCollision) {
+          break; // Fully converged outside all obstacles
         }
       }
 
       // Map boundary limits
-      nextX = Math.max(MAP_BOUNDS.minX + radius, Math.min(MAP_BOUNDS.maxX - radius, nextX));
-      nextZ = Math.max(MAP_BOUNDS.minZ + radius, Math.min(MAP_BOUNDS.maxZ - radius, nextZ));
+      nextX = Math.max(this.currentBounds.minX + radius, Math.min(this.currentBounds.maxX - radius, nextX));
+      nextZ = Math.max(this.currentBounds.minZ + radius, Math.min(this.currentBounds.maxZ - radius, nextZ));
 
       curX = nextX;
       curZ = nextZ;
@@ -230,6 +245,17 @@ export class CollisionWorld {
       vx: curVx,
       vz: curVz,
     };
+  }
+
+  /**
+   * Dynamically switches obstacles and boundaries when changing battle areas.
+   */
+  public static setMap(
+    obstacles: CollisionBox[],
+    bounds: { minX: number; maxX: number; minZ: number; maxZ: number } = MAP_BOUNDS
+  ) {
+    this.obstacles = obstacles;
+    this.currentBounds = { ...bounds };
   }
 
   /**
@@ -263,8 +289,8 @@ export class CollisionWorld {
       box.max.set(halfX, halfY, halfZ);
 
       // Transform ray origin and direction to obstacle local space
-      const cos = Math.cos(-obs.rotationY);
-      const sin = Math.sin(-obs.rotationY);
+      const cos = Math.cos(obs.rotationY);
+      const sin = Math.sin(obs.rotationY);
 
       const ox = targetHead.x - obs.position[0];
       const oy = targetHead.y - obs.position[1];
@@ -320,8 +346,8 @@ export class CollisionWorld {
       box.min.set(-halfX, -halfY, -halfZ);
       box.max.set(halfX, halfY, halfZ);
 
-      const cos = Math.cos(-obs.rotationY);
-      const sin = Math.sin(-obs.rotationY);
+      const cos = Math.cos(obs.rotationY);
+      const sin = Math.sin(obs.rotationY);
 
       const ox = origin.x - obs.position[0];
       const oy = origin.y - obs.position[1];
@@ -337,12 +363,10 @@ export class CollisionWorld {
         if (d < closestDist) {
           closestDist = d;
           // Transform local hit point back to world coordinates
-          const cosWorld = Math.cos(obs.rotationY);
-          const sinWorld = Math.sin(obs.rotationY);
           finalHitPoint.set(
-            obs.position[0] + (cosWorld * hitVec.x - sinWorld * hitVec.z),
+            obs.position[0] + (cos * hitVec.x + sin * hitVec.z),
             obs.position[1] + hitVec.y,
-            obs.position[2] + (sinWorld * hitVec.x + cosWorld * hitVec.z)
+            obs.position[2] + (-sin * hitVec.x + cos * hitVec.z)
           );
         }
       }

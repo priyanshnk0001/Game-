@@ -4,6 +4,9 @@ import { WeaponId } from '../../types/game';
 import { WEAPON_SPAWNS } from '../../config/constants';
 import { inputManager } from '../../game/input/InputManager';
 import { Shield, Crosshair as CrosshairIcon } from 'lucide-react';
+import { Minimap } from './Minimap';
+import { LargeMapModal } from './LargeMapModal';
+import { MapSelectorModal } from './MapSelectorModal';
 
 interface TacticalHUDProps {
   nearbyWeapon: { id: WeaponId; name: string } | null;
@@ -15,6 +18,31 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
   const activePlayer = state.players[activeId];
   const p1 = state.players.player1;
   const p2 = state.players.player2;
+
+  // Modals state
+  const [isLargeMapOpen, setIsLargeMapOpen] = useState(false);
+  const [isMapSelectorOpen, setIsMapSelectorOpen] = useState(false);
+
+  // M key listener to toggle Large Map
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'm' || e.key === 'M') {
+        if (!isMapSelectorOpen) {
+          setIsLargeMapOpen((prev) => {
+            const next = !prev;
+            if (next) {
+              document.exitPointerLock?.();
+            } else {
+              inputManager.requestLock();
+            }
+            return next;
+          });
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMapSelectorOpen]);
 
   // Hit indicator pulse
   const [recentHit, setRecentHit] = useState(false);
@@ -60,20 +88,34 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
   return (
     <div className="fixed inset-0 pointer-events-none select-none z-10 flex flex-col justify-between p-6">
       {/* ======================================================== */}
-      {/* TOP HEADER: MINIMAL COMPACT STATUS */}
+      {/* TOP HEADER: MINIMAL COMPACT STATUS & TACTICAL MINIMAP */}
       {/* ======================================================== */}
-      <div className="w-full flex items-center justify-between">
-        <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-slate-950/60 border border-slate-800/80 backdrop-blur-md text-[11px] font-mono text-slate-400">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="font-bold tracking-wider text-slate-300 uppercase">TACTICAL SECTOR</span>
-          <span className="text-slate-600">|</span>
-          <span className="text-slate-400">LIVE COMBAT</span>
+      <div className="w-full flex items-start justify-between">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-slate-950/60 border border-slate-800/80 backdrop-blur-md text-[11px] font-mono text-slate-400">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="font-bold tracking-wider text-slate-300 uppercase">TACTICAL SECTOR</span>
+            <span className="text-slate-600">|</span>
+            <span className="text-slate-400">LIVE COMBAT</span>
+          </div>
+
+          {/* Small Stance Indicator */}
+          <div className="self-start px-2.5 py-1 rounded-md bg-slate-950/60 border border-slate-800/80 text-[10px] font-mono font-bold text-slate-400 tracking-widest uppercase">
+            STANCE: <span className="text-cyan-400">{stanceLabel}</span>
+          </div>
         </div>
 
-        {/* Small Stance Indicator */}
-        <div className="px-2.5 py-1 rounded-md bg-slate-950/60 border border-slate-800/80 text-[10px] font-mono font-bold text-slate-400 tracking-widest uppercase">
-          STANCE: <span className="text-cyan-400">{stanceLabel}</span>
-        </div>
+        {/* Top-Right Tactical Minimap */}
+        <Minimap
+          onOpenLargeMap={() => {
+            document.exitPointerLock?.();
+            setIsLargeMapOpen(true);
+          }}
+          onOpenMapSelector={() => {
+            document.exitPointerLock?.();
+            setIsMapSelectorOpen(true);
+          }}
+        />
       </div>
 
       {/* ======================================================== */}
@@ -344,7 +386,7 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
       {/* ======================================================== */}
       {/* PAUSE / CLICK TO RESUME OVERLAY (when pointer lock is disengaged) */}
       {/* ======================================================== */}
-      {!isLocked && state.matchState.status === 'playing' && (
+      {!isLocked && state.matchState.status === 'playing' && !isLargeMapOpen && !isMapSelectorOpen && (
         <div
           onClick={() => inputManager.requestLock()}
           className="fixed inset-0 z-35 flex items-center justify-center bg-black/50 backdrop-blur-[2px] pointer-events-auto cursor-pointer"
@@ -464,6 +506,25 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
           </button>
         </div>
       )}
+
+      {/* ======================================================== */}
+      {/* TACTICAL MAP OVERLAYS */}
+      {/* ======================================================== */}
+      <LargeMapModal
+        isOpen={isLargeMapOpen}
+        onClose={() => {
+          setIsLargeMapOpen(false);
+          inputManager.requestLock();
+        }}
+      />
+
+      <MapSelectorModal
+        isOpen={isMapSelectorOpen}
+        onClose={() => {
+          setIsMapSelectorOpen(false);
+          inputManager.requestLock();
+        }}
+      />
     </div>
   );
 };
