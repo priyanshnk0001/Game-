@@ -78,3 +78,51 @@ export interface HitFeedbackData {
   isFatal: boolean;
   timestamp: number;
 }
+
+export type MapId = 'battle-area' | 'jungle-ops' | 'snow-ops';
+
+export interface MapSchematicObstacle {
+  id: string;
+  x: number;
+  z: number;
+  width: number;
+  height: number;
+  rotation?: number;
+  type: 'wall' | 'barrier' | 'bunker' | 'container' | 'building' | 'crate' | 'rock' | 'tree';
+  label?: string;
+}
+
+export interface MapDefinition {
+  id: MapId;
+  name: string;
+  sectorCode: string;
+  tagline: string;
+  description: string;
+  environmentType: 'industrial' | 'jungle' | 'arctic';
+  bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
+  playerSpawns: Record<PlayerId, [number, number, number]>;
+  playerSpawnRotations?: Record<PlayerId, number>;
+  weaponSpawns: Record<WeaponId, [number, number, number]>;
+  sky: {
+    sunPosition: [number, number, number];
+    inclination: number;
+    azimuth: number;
+    turbidity: number;
+    rayleigh: number;
+    mieCoefficient: number;
+    mieDirectionalG: number;
+    fogColor: string;
+    fogNear: number;
+    fogFar: number;
+    ambientColor: string;
+    ambientIntensity: number;
+    sunColor: string;
+    sunIntensity: number;
+    skyBounceColor: string;
+    skyBounceIntensity: number;
+  };
+  schematicObstacles: MapSchematicObstacle[];
+  sectors: Array<{ label: string; x: number; z: number }>;
+  cardGradient: string;
+  badgeColor: string;
+}
