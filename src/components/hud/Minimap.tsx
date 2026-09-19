@@ -99,7 +99,18 @@ export const Minimap: React.FC<MinimapProps> = ({ onOpenLargeMap, onOpenMapSelec
             gap: '5px',
             cursor: 'pointer',
             boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
-            transition: 'border-color 0.15s, background-color 0.15s',
+            transition: 'border-color 0.15s, background-color 0.15s, transform 0.1s',
+            pointerEvents: 'auto',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = '#38bdf8';
+            e.currentTarget.style.backgroundColor = 'rgba(8, 47, 73, 0.9)';
+            e.currentTarget.style.transform = 'scale(1.02)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(51, 65, 85, 0.8)';
+            e.currentTarget.style.backgroundColor = 'rgba(2, 6, 23, 0.85)';
+            e.currentTarget.style.transform = 'scale(1)';
           }}
         >
           <Compass style={{ width: '12px', height: '12px', color: '#38bdf8' }} />

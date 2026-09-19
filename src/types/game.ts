@@ -38,6 +38,10 @@ export interface PlayerState {
   isFiring: boolean;
   isSprinting: boolean;
   isCrouching: boolean;
+  isProne: boolean;
+  isVaulting: boolean;
+  stance: 'standing' | 'crouching' | 'prone' | 'vaulting';
+  vaultProgress?: number; // 0.0 to 1.0 during active vault
   isGrounded: boolean;
   aimTarget?: [number, number, number];
   muzzlePos?: [number, number, number];

@@ -77,7 +77,11 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
   const activeHpColor =
     activeHpPercent > 60 ? '#10b981' : activeHpPercent > 30 ? '#f59e0b' : '#ef4444';
 
-  const stanceLabel = activePlayer.isCrouching
+  const stanceLabel = activePlayer.isVaulting
+    ? 'VAULT'
+    : activePlayer.isProne
+    ? 'PRONE'
+    : activePlayer.isCrouching
     ? 'CROUCH'
     : activePlayer.isSprinting
     ? 'SPRINT'
@@ -90,7 +94,7 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
       {/* ======================================================== */}
       {/* TOP HEADER: MINIMAL COMPACT STATUS & TACTICAL MINIMAP */}
       {/* ======================================================== */}
-      <div className="w-full flex items-start justify-between">
+      <div className="w-full flex items-start justify-between relative z-40">
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2 px-3 py-1 rounded-md bg-slate-950/60 border border-slate-800/80 backdrop-blur-md text-[11px] font-mono text-slate-400">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -214,12 +218,25 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
       {/* ======================================================== */}
       <div className="w-full flex items-end justify-between font-mono">
         {/* Operator Health Card (Bottom Left) */}
-        <div className="p-3 rounded-xl bg-slate-950/80 backdrop-blur-md border border-slate-800 shadow-2xl min-w-[200px]">
+        <div className="p-3 rounded-xl bg-slate-950/80 backdrop-blur-md border border-slate-800 shadow-2xl min-w-[210px]">
           <div className="flex items-center justify-between mb-1">
             <div className="flex items-center gap-1.5">
               <Shield className="w-3.5 h-3.5 text-slate-400" />
               <span className="text-xs font-bold tracking-wider text-slate-300">
                 {activePlayer.name}
+              </span>
+              <span
+                className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${
+                  activePlayer.isVaulting
+                    ? 'bg-amber-950/70 border-amber-500/50 text-amber-300 animate-pulse'
+                    : activePlayer.isProne
+                    ? 'bg-indigo-950/70 border-indigo-500/50 text-indigo-300'
+                    : activePlayer.isCrouching
+                    ? 'bg-sky-950/70 border-sky-500/50 text-sky-300'
+                    : 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
+                }`}
+              >
+                {stanceLabel}
               </span>
             </div>
             <span
@@ -239,6 +256,15 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
                 backgroundColor: activePlayer.isDead ? '#475569' : activeHpColor,
               }}
             />
+          </div>
+
+          {/* Stance Keybind Hints */}
+          <div className="text-[9px] text-slate-500 mt-1.5 flex items-center justify-between font-mono">
+            <span>[C] CROUCH</span>
+            <span className="text-slate-600">•</span>
+            <span>[Z] PRONE</span>
+            <span className="text-slate-600">•</span>
+            <span>[SPACE] VAULT</span>
           </div>
         </div>
 
@@ -387,20 +413,28 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
       {/* PAUSE / CLICK TO RESUME OVERLAY (when pointer lock is disengaged) */}
       {/* ======================================================== */}
       {!isLocked && state.matchState.status === 'playing' && !isLargeMapOpen && !isMapSelectorOpen && (
-        <div
-          onClick={() => inputManager.requestLock()}
-          className="fixed inset-0 z-35 flex items-center justify-center bg-black/50 backdrop-blur-[2px] pointer-events-auto cursor-pointer"
-        >
-          <div className="p-6 rounded-2xl bg-slate-950/90 border border-slate-700 shadow-2xl text-center max-w-xs font-mono">
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 backdrop-blur-[1.5px] pointer-events-none select-none">
+          <div
+            id="pause-resume-card"
+            onClick={() => inputManager.requestLock()}
+            className="p-6 rounded-2xl bg-slate-950/95 border border-slate-700 hover:border-cyan-500/60 shadow-2xl text-center max-w-xs font-mono pointer-events-auto cursor-pointer transition-all hover:scale-105 active:scale-95 group"
+          >
             <div className="text-sm font-black uppercase text-white mb-1 tracking-wider">
-              GAME PAUSED
+              TACTICAL PAUSE
             </div>
             <p className="text-xs text-slate-400 mb-4">
-              Click anywhere in the viewport to resume tactical mouse control.
+              Click below to enter tactical mouse control.
             </p>
-            <div className="py-2 px-4 rounded-lg bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 text-xs font-bold uppercase tracking-wider">
+            <button
+              id="btn-click-to-resume"
+              onClick={(e) => {
+                e.stopPropagation();
+                inputManager.requestLock();
+              }}
+              className="w-full py-2.5 px-4 rounded-lg bg-cyan-500/20 group-hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 group-hover:border-cyan-400 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-lg"
+            >
               CLICK TO RESUME
-            </div>
+            </button>
           </div>
         </div>
       )}
