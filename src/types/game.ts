@@ -40,8 +40,10 @@ export interface PlayerState {
   isCrouching: boolean;
   isProne: boolean;
   isVaulting: boolean;
-  stance: 'standing' | 'crouching' | 'prone' | 'vaulting';
+  isMantling?: boolean;
+  stance: 'standing' | 'crouching' | 'prone' | 'vaulting' | 'mantling';
   vaultProgress?: number; // 0.0 to 1.0 during active vault
+  mantleProgress?: number; // 0.0 to 1.0 during active wall climb/mantle
   isGrounded: boolean;
   aimTarget?: [number, number, number];
   muzzlePos?: [number, number, number];

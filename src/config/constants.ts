@@ -18,11 +18,17 @@ export const PLAYER_PRONE_HEIGHT = 0.5;
 export const MAX_STEP_HEIGHT = 0.35;
 export const PICKUP_DISTANCE = 2.6;
 
-// Vault / Climb parameters
+// Vault / Climb parameters (Low Obstacles)
 export const VAULT_MIN_HEIGHT = 0.55;
-export const VAULT_MAX_HEIGHT = 1.55;
+export const VAULT_MAX_HEIGHT = 1.35;
 export const VAULT_MAX_DEPTH = 2.8;
 export const VAULT_DURATION = 0.72;
+
+// Wall Mantle parameters (Medium-Height Walls)
+export const MANTLE_MIN_HEIGHT = 1.35;
+export const MANTLE_MAX_HEIGHT = 2.35;
+export const MANTLE_MAX_DEPTH = 1.6;
+export const MANTLE_DURATION = 1.25;
 
 export const PLAYER_SPAWNS: Record<'player1' | 'player2', [number, number, number]> = {
   player1: [-14, 0, 0],

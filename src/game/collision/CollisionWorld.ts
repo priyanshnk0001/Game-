@@ -5,6 +5,10 @@ import {
   VAULT_MAX_HEIGHT,
   VAULT_MAX_DEPTH,
   VAULT_DURATION,
+  MANTLE_MIN_HEIGHT,
+  MANTLE_MAX_HEIGHT,
+  MANTLE_MAX_DEPTH,
+  MANTLE_DURATION,
 } from '../../config/constants';
 
 export interface CollisionBox {
@@ -22,6 +26,8 @@ export interface VaultTarget {
   apexPos: [number, number, number];
   landPos: [number, number, number];
   duration: number;
+  mode: 'vault' | 'mantle';
+  obstacleHeight: number;
 }
 
 export class CollisionWorld {
@@ -174,14 +180,26 @@ export class CollisionWorld {
     const ndz = dirZ / dirLen;
 
     for (const obs of this.obstacles) {
-      // Only suitable low tactical obstacles can be vaulted
-      if (obs.type !== 'barrier' && obs.type !== 'crate' && obs.type !== 'bunker') continue;
-
       const topY = obs.position[1] + obs.size[1] / 2;
       const relHeight = topY - playerY;
 
-      // Obstacle height must be between waist and chest
-      if (relHeight < VAULT_MIN_HEIGHT || relHeight > VAULT_MAX_HEIGHT) continue;
+      // 1. Low Tactical Obstacles: Quick Vault (waist-to-chest, 0.55m - 1.35m)
+      const isVaultCandidate =
+        (obs.type === 'barrier' || obs.type === 'crate' || obs.type === 'bunker') &&
+        relHeight >= VAULT_MIN_HEIGHT &&
+        relHeight <= VAULT_MAX_HEIGHT;
+
+      // 2. Medium-Height Walls: Two-Handed Wall Climb & Mantle (1.35m - 2.35m)
+      const isMantleCandidate =
+        (obs.type === 'wall' || obs.type === 'barrier' || obs.type === 'bunker' || obs.type === 'crate') &&
+        relHeight >= MANTLE_MIN_HEIGHT &&
+        relHeight <= MANTLE_MAX_HEIGHT;
+
+      if (!isVaultCandidate && !isMantleCandidate) continue;
+
+      const mode: 'vault' | 'mantle' = isMantleCandidate ? 'mantle' : 'vault';
+      const maxDepth = mode === 'mantle' ? MANTLE_MAX_DEPTH : VAULT_MAX_DEPTH;
+      const duration = mode === 'mantle' ? MANTLE_DURATION : VAULT_DURATION;
 
       // Transform player position and probe ray to obstacle local space
       const cos = Math.cos(obs.rotationY);
@@ -227,13 +245,14 @@ export class CollisionWorld {
       if (tNear > tFar || tFar < 0) continue;
 
       // Player must be close enough to front edge (between 0.05m and maxProbeDist)
+      const allowedProbe = mode === 'mantle' ? maxProbeDist + 0.25 : maxProbeDist;
       const distToFront = Math.max(0, tNear);
-      if (distToFront > maxProbeDist) continue;
+      if (distToFront > allowedProbe) continue;
 
       const obstacleDepth = tFar - distToFront;
-      if (obstacleDepth <= 0.1 || obstacleDepth > VAULT_MAX_DEPTH) continue;
+      if (obstacleDepth <= 0.1 || obstacleDepth > maxDepth) continue;
 
-      // Compute world waypoints along the vault trajectory
+      // Compute world waypoints along the trajectory
       const startPos: [number, number, number] = [playerX, playerY, playerZ];
 
       // Hand grab edge: on top surface along the front boundary
@@ -246,13 +265,14 @@ export class CollisionWorld {
 
       // Apex point: cresting over the middle of the obstacle
       const apexDist = distToFront + obstacleDepth * 0.5;
+      const apexHeightOffset = mode === 'mantle' ? 0.35 : 0.22;
       const apexPos: [number, number, number] = [
         playerX + ndx * apexDist,
-        topY + 0.22,
+        topY + apexHeightOffset,
         playerZ + ndz * apexDist,
       ];
 
-      // Landing point on opposite side: past obstacle back edge by 0.6m
+      // Landing point on opposite side: past obstacle back edge by 0.65m
       const landDist = tFar + 0.65;
       const rawLandX = playerX + ndx * landDist;
       const rawLandZ = playerZ + ndz * landDist;
@@ -300,7 +320,9 @@ export class CollisionWorld {
         grabPos,
         apexPos,
         landPos,
-        duration: VAULT_DURATION,
+        duration,
+        mode,
+        obstacleHeight: relHeight,
       };
     }
 

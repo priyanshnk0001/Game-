@@ -258,8 +258,8 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     const proneT = proneAmountRef.current;
 
     // Smooth weapon state transition and ADS aiming interpolation
-    const isSlot1Ready = player.activeSlot === 1 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting;
-    const isSlot2Ready = player.activeSlot === 2 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting;
+    const isSlot1Ready = player.activeSlot === 1 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
+    const isSlot2Ready = player.activeSlot === 2 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
 
     const targetT1 = isSlot1Ready ? 1.0 : 0.0;
     const targetT2 = isSlot2Ready ? 1.0 : 0.0;
@@ -313,6 +313,17 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         characterGroupRef.current.rotation.y = Math.PI;
         characterGroupRef.current.rotation.z = 0;
         characterGroupRef.current.position.set(0, 0.15, 0);
+      } else if (player.isMantling) {
+        const mp = player.mantleProgress ?? 0;
+        const targetPitch = mp < 0.35 ? 0.15 : mp < 0.75 ? 0.42 : 0.08;
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(
+          characterGroupRef.current.rotation.x,
+          targetPitch,
+          delta * 12
+        );
+        characterGroupRef.current.rotation.y = Math.PI;
+        characterGroupRef.current.rotation.z = 0;
+        characterGroupRef.current.position.set(0, 0, 0);
       } else if (player.isVaulting) {
         characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(
           characterGroupRef.current.rotation.x,
@@ -347,7 +358,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     }
 
     // 3. Stance Animation Action Cross-fading
-    if (!player.isDead && !player.isVaulting) {
+    if (!player.isDead && !player.isVaulting && !player.isMantling) {
       let desiredAction = 'Idle';
       if (player.isProne) {
         if (isMoving) desiredAction = 'Walk';
@@ -370,7 +381,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
           currentActionRef.current = desiredAction;
         }
       }
-    } else if (player.isVaulting) {
+    } else if (player.isVaulting || player.isMantling) {
       if (currentActionRef.current !== 'Run' && actions['Run']) {
         actions['Run'].reset().fadeIn(0.15).play();
         if (actions[currentActionRef.current]) actions[currentActionRef.current].fadeOut(0.15);
@@ -379,7 +390,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     }
 
     // 4. Procedural Skeletal Adjustments for Tactical Stances (Standing, Crouch, Prone, and ADS Aiming)
-    if (!player.isDead && !player.isVaulting) {
+    if (!player.isDead && !player.isVaulting && !player.isMantling) {
       const cWeight = crouchT * (1.0 - proneT);
       const sWeight = (1.0 - crouchT) * (1.0 - proneT);
 
@@ -568,8 +579,69 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       }
     }
 
-    // 5. Procedural Arm Posing (Vaulting vs Stance x Aim Matrix vs Prone Support)
-    if (player.isVaulting && !player.isDead) {
+    // 5. Procedural Arm Posing (Wall Mantle vs Vaulting vs Stance x Aim Matrix vs Prone Support)
+    if (player.isMantling && !player.isDead) {
+      const mp = player.mantleProgress ?? 0;
+
+      // Realistic 4-Phase Wall Climb & Mantle Posing:
+      // Phase 1 (0-25%): High Reach - Both hands leap up to grab top edge
+      // Phase 2 (25-40%): Firm Grip & Hang - Hands hold edge, biceps engage
+      // Phase 3 (40-75%): Pull-Up & Muscle Over - Arms push down, chest crests wall
+      // Phase 4 (75-100%): Step Over & Land - Hands release, brace for ground contact
+      let rArmX = 2.25, rArmY = -0.25, rArmZ = 0.15;
+      let lArmX = 2.25, lArmY = 0.25, lArmZ = -0.15;
+      let rForeArmX = 0.30, lForeArmX = 0.30;
+      let rHandX = 0.85, lHandX = 0.85;
+
+      if (mp < 0.25) {
+        // Leaping & reaching for the top lip
+        rArmX = 2.35; lArmX = 2.35;
+        rForeArmX = 0.25; lForeArmX = 0.25;
+      } else if (mp < 0.40) {
+        // Holding edge firmly
+        rArmX = 2.10; lArmX = 2.10;
+        rForeArmX = 0.65; lForeArmX = 0.65;
+      } else if (mp < 0.75) {
+        // Pressing down onto wall surface to hoist chest up
+        rArmX = 1.15; lArmX = 1.15;
+        rArmY = -0.38; lArmY = 0.38;
+        rForeArmX = 1.10; lForeArmX = 1.10;
+        rHandX = 0.50; lHandX = 0.50;
+      } else {
+        // Releasing edge and preparing for landing
+        rArmX = 0.95; lArmX = 0.95;
+        rForeArmX = 0.55; lForeArmX = 0.55;
+        rHandX = 0.30; lHandX = 0.30;
+      }
+
+      const rightArmMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(rArmX, rArmY, rArmZ));
+      const rightForeArmMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(rForeArmX, 0.1, -0.05));
+      const rightHandMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(rHandX, -0.1, 0.05));
+
+      const leftShoulderMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.25, 0.12, -0.1));
+      const leftArmMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(lArmX, lArmY, lArmZ));
+      const leftForeArmMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(lForeArmX, -0.1, 0.05));
+      const leftHandMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(lHandX, 0.1, -0.05));
+
+      if (rightArmRef.current) rightArmRef.current.quaternion.slerp(rightArmMantle, 0.88);
+      if (rightForeArmRef.current) rightForeArmRef.current.quaternion.slerp(rightForeArmMantle, 0.88);
+      if (rightHandRef.current) rightHandRef.current.quaternion.slerp(rightHandMantle, 0.88);
+
+      if (leftShoulderRef.current) leftShoulderRef.current.quaternion.slerp(leftShoulderMantle, 0.88);
+      if (leftArmRef.current) leftArmRef.current.quaternion.slerp(leftArmMantle, 0.88);
+      if (leftForeArmRef.current) leftForeArmRef.current.quaternion.slerp(leftForeArmMantle, 0.88);
+      if (leftHandRef.current) leftHandRef.current.quaternion.slerp(leftHandMantle, 0.88);
+
+      // Leg kinematics: tuck right knee high during pull-up to clear wall
+      if (mp >= 0.35 && mp < 0.80) {
+        const pullProgress = (mp - 0.35) / 0.45;
+        const tuckAmt = Math.sin(pullProgress * Math.PI);
+        const rThighRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.95 * tuckAmt, -0.1, 0.15 * tuckAmt));
+        const rKneeRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.45 * tuckAmt, 0, 0));
+        if (rightUpLegRef.current) rightUpLegRef.current.quaternion.slerp(rThighRot, 0.75);
+        if (rightLegRef.current) rightLegRef.current.quaternion.slerp(rKneeRot, 0.75);
+      }
+    } else if (player.isVaulting && !player.isDead) {
       // Both hands reach forward and press onto the top edge of the obstacle to pull body upward
       const rightArmVault = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.65, -0.35, 0.15));
       const rightForeArmVault = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.45, 0.1, -0.1));

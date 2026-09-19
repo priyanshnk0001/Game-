@@ -77,7 +77,9 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
   const activeHpColor =
     activeHpPercent > 60 ? '#10b981' : activeHpPercent > 30 ? '#f59e0b' : '#ef4444';
 
-  const stanceLabel = activePlayer.isVaulting
+  const stanceLabel = activePlayer.isMantling
+    ? 'MANTLE'
+    : activePlayer.isVaulting
     ? 'VAULT'
     : activePlayer.isProne
     ? 'PRONE'
@@ -227,7 +229,7 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
               </span>
               <span
                 className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${
-                  activePlayer.isVaulting
+                  activePlayer.isVaulting || activePlayer.isMantling
                     ? 'bg-amber-950/70 border-amber-500/50 text-amber-300 animate-pulse'
                     : activePlayer.isProne
                     ? 'bg-indigo-950/70 border-indigo-500/50 text-indigo-300'
@@ -264,7 +266,7 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
             <span className="text-slate-600">•</span>
             <span>[Z] PRONE</span>
             <span className="text-slate-600">•</span>
-            <span>[SPACE] VAULT</span>
+            <span>[SPACE] VAULT / CLIMB</span>
           </div>
         </div>
 

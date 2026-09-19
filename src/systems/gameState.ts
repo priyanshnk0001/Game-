@@ -55,8 +55,10 @@ class GameStateManager {
       isCrouching: false,
       isProne: false,
       isVaulting: false,
+      isMantling: false,
       stance: 'standing',
       vaultProgress: 0,
+      mantleProgress: 0,
       isGrounded: true,
       color: '#06b6d4',
       accentColor: '#67e8f9',
@@ -89,8 +91,10 @@ class GameStateManager {
       isCrouching: false,
       isProne: false,
       isVaulting: false,
+      isMantling: false,
       stance: 'standing',
       vaultProgress: 0,
+      mantleProgress: 0,
       isGrounded: true,
       color: '#f43f5e',
       accentColor: '#fda4af',
@@ -199,8 +203,10 @@ class GameStateManager {
       isCrouching?: boolean;
       isProne?: boolean;
       isVaulting?: boolean;
-      stance?: 'standing' | 'crouching' | 'prone' | 'vaulting';
+      isMantling?: boolean;
+      stance?: 'standing' | 'crouching' | 'prone' | 'vaulting' | 'mantling';
       vaultProgress?: number;
+      mantleProgress?: number;
       isGrounded?: boolean;
     }
   ) {
@@ -210,8 +216,10 @@ class GameStateManager {
     if (typeof stanceState.isCrouching === 'boolean') p.isCrouching = stanceState.isCrouching;
     if (typeof stanceState.isProne === 'boolean') p.isProne = stanceState.isProne;
     if (typeof stanceState.isVaulting === 'boolean') p.isVaulting = stanceState.isVaulting;
+    if (typeof stanceState.isMantling === 'boolean') p.isMantling = stanceState.isMantling;
     if (stanceState.stance) p.stance = stanceState.stance;
     if (typeof stanceState.vaultProgress === 'number') p.vaultProgress = stanceState.vaultProgress;
+    if (typeof stanceState.mantleProgress === 'number') p.mantleProgress = stanceState.mantleProgress;
     if (typeof stanceState.isGrounded === 'boolean') p.isGrounded = stanceState.isGrounded;
   }
 
@@ -521,8 +529,10 @@ class GameStateManager {
       isCrouching: false,
       isProne: false,
       isVaulting: false,
+      isMantling: false,
       stance: 'standing',
       vaultProgress: 0,
+      mantleProgress: 0,
       isGrounded: true,
       color: '#06b6d4',
       accentColor: '#67e8f9',
@@ -550,8 +560,10 @@ class GameStateManager {
       isCrouching: false,
       isProne: false,
       isVaulting: false,
+      isMantling: false,
       stance: 'standing',
       vaultProgress: 0,
+      mantleProgress: 0,
       isGrounded: true,
       color: '#f43f5e',
       accentColor: '#fda4af',

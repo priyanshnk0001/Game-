@@ -56,7 +56,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   const toggleHolsterPressedRef = useRef<boolean>(false);
   const crouchPressedRef = useRef<boolean>(false);
   const pronePressedRef = useRef<boolean>(false);
-  const stanceRef = useRef<'standing' | 'crouching' | 'prone' | 'vaulting'>('standing');
+  const stanceRef = useRef<'standing' | 'crouching' | 'prone' | 'vaulting' | 'mantling'>('standing');
   const vaultTargetRef = useRef<VaultTarget | null>(null);
   const vaultTimeRef = useRef<number>(0);
 
@@ -201,16 +201,17 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       }
     }
 
-    // 5. CONTEXTUAL VAULT / CLIMB DETECTION
+    // 5. CONTEXTUAL VAULT / WALL MANTLE DETECTION
     if (
       !player.isDead &&
       gameState.matchState.status === 'playing' &&
       stanceRef.current !== 'vaulting' &&
+      stanceRef.current !== 'mantling' &&
       input.forward
     ) {
-      // Trigger when pressing Jump while moving forward toward an obstacle
+      // Trigger when pressing Jump while moving forward toward an obstacle or wall
       if (input.jump) {
-        const vaultCandidate = CollisionWorld.findVaultableObstacle(
+        const candidate = CollisionWorld.findVaultableObstacle(
           player.position[0],
           player.position[1],
           player.position[2],
@@ -219,9 +220,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
           1.35
         );
 
-        if (vaultCandidate) {
-          stanceRef.current = 'vaulting';
-          vaultTargetRef.current = vaultCandidate;
+        if (candidate) {
+          stanceRef.current = candidate.mode === 'mantle' ? 'mantling' : 'vaulting';
+          vaultTargetRef.current = candidate;
           vaultTimeRef.current = 0;
           verticalVelocity.current = 0;
           isGrounded.current = false;
@@ -232,60 +233,97 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const isProne = stanceRef.current === 'prone';
     const isCrouching = stanceRef.current === 'crouching';
     const isVaulting = stanceRef.current === 'vaulting';
+    const isMantling = stanceRef.current === 'mantling';
+    const isOverObstacle = isVaulting || isMantling;
     const isSprinting = stanceRef.current === 'standing' && input.sprint && !isAiming && isGrounded.current && !player.isDead;
 
-    // 6. VAULT KINEMATICS & MOVEMENT RESOLUTION
-    if (isVaulting && vaultTargetRef.current && !player.isDead) {
+    // 6. VAULT & WALL MANTLE KINEMATICS & MOVEMENT RESOLUTION
+    if (isOverObstacle && vaultTargetRef.current && !player.isDead) {
       const vt = vaultTargetRef.current;
       vaultTimeRef.current += delta;
       const progress = Math.min(1.0, vaultTimeRef.current / vt.duration);
 
-      // Smooth 3-phase Hermite trajectory over obstacle
       let targetX = player.position[0];
       let targetY = player.position[1];
       let targetZ = player.position[2];
 
-      if (progress < 0.35) {
-        // Phase 1 (0% to 35%): Reach forward, grab front top edge, lift body upward
-        const u = progress / 0.35;
-        const s = u * u * (3 - 2 * u);
-        targetX = THREE.MathUtils.lerp(vt.startPos[0], vt.grabPos[0], s);
-        targetY = THREE.MathUtils.lerp(vt.startPos[1], vt.grabPos[1], s);
-        targetZ = THREE.MathUtils.lerp(vt.startPos[2], vt.grabPos[2], s);
-      } else if (progress < 0.70) {
-        // Phase 2 (35% to 70%): Pull body over apex, hands press down, legs tuck
-        const u = (progress - 0.35) / 0.35;
-        const s = u * u * (3 - 2 * u);
-        targetX = THREE.MathUtils.lerp(vt.grabPos[0], vt.apexPos[0], s);
-        targetY = THREE.MathUtils.lerp(vt.grabPos[1], vt.apexPos[1], s);
-        targetZ = THREE.MathUtils.lerp(vt.grabPos[2], vt.apexPos[2], s);
+      if (vt.mode === 'mantle') {
+        // 4-Phase Realistic Tactical Wall Climb & Mantle:
+        // Phase 1 (0% to 25%): Leap upward, hands reach toward top edge, forward movement slows
+        if (progress < 0.25) {
+          const u = progress / 0.25;
+          const s = u * u * (3 - 2 * u);
+          targetX = THREE.MathUtils.lerp(vt.startPos[0], vt.grabPos[0] - cameraForward.x * 0.15, s);
+          targetY = THREE.MathUtils.lerp(vt.startPos[1], vt.grabPos[1] - 0.70, s);
+          targetZ = THREE.MathUtils.lerp(vt.startPos[2], vt.grabPos[2] - cameraForward.z * 0.15, s);
+        }
+        // Phase 2 (25% to 40%): Hand Grab & Hold - Hands firmly grip top edge, pause momentarily
+        else if (progress < 0.40) {
+          const u = (progress - 0.25) / 0.15;
+          const s = u * u * (3 - 2 * u);
+          targetX = THREE.MathUtils.lerp(vt.grabPos[0] - cameraForward.x * 0.15, vt.grabPos[0] - cameraForward.x * 0.05, s);
+          targetY = THREE.MathUtils.lerp(vt.grabPos[1] - 0.70, vt.grabPos[1] - 0.55, s);
+          targetZ = THREE.MathUtils.lerp(vt.grabPos[2] - cameraForward.z * 0.15, vt.grabPos[2] - cameraForward.z * 0.05, s);
+        }
+        // Phase 3 (40% to 75%): Pull-Up & Chest Crest - Arms press down, body pulls up and over apex
+        else if (progress < 0.75) {
+          const u = (progress - 0.40) / 0.35;
+          const s = u * u * (3 - 2 * u);
+          targetX = THREE.MathUtils.lerp(vt.grabPos[0] - cameraForward.x * 0.05, vt.apexPos[0], s);
+          targetY = THREE.MathUtils.lerp(vt.grabPos[1] - 0.55, vt.apexPos[1], s);
+          targetZ = THREE.MathUtils.lerp(vt.grabPos[2] - cameraForward.z * 0.05, vt.apexPos[2], s);
+        }
+        // Phase 4 (75% to 100%): Leg Swing & Drop Landing - Crests over wall and descends to ground
+        else {
+          const u = (progress - 0.75) / 0.25;
+          const s = u * u * (3 - 2 * u);
+          targetX = THREE.MathUtils.lerp(vt.apexPos[0], vt.landPos[0], s);
+          targetY = THREE.MathUtils.lerp(vt.apexPos[1], vt.landPos[1], s);
+          targetZ = THREE.MathUtils.lerp(vt.apexPos[2], vt.landPos[2], s);
+        }
       } else {
-        // Phase 3 (70% to 100%): Drop down smoothly to landing on opposite side
-        const u = (progress - 0.70) / 0.30;
-        const s = u * u * (3 - 2 * u);
-        targetX = THREE.MathUtils.lerp(vt.apexPos[0], vt.landPos[0], s);
-        targetY = THREE.MathUtils.lerp(vt.apexPos[1], vt.landPos[1], s);
-        targetZ = THREE.MathUtils.lerp(vt.apexPos[2], vt.landPos[2], s);
+        // Quick 3-phase low barrier vault
+        if (progress < 0.35) {
+          const u = progress / 0.35;
+          const s = u * u * (3 - 2 * u);
+          targetX = THREE.MathUtils.lerp(vt.startPos[0], vt.grabPos[0], s);
+          targetY = THREE.MathUtils.lerp(vt.startPos[1], vt.grabPos[1], s);
+          targetZ = THREE.MathUtils.lerp(vt.startPos[2], vt.grabPos[2], s);
+        } else if (progress < 0.70) {
+          const u = (progress - 0.35) / 0.35;
+          const s = u * u * (3 - 2 * u);
+          targetX = THREE.MathUtils.lerp(vt.grabPos[0], vt.apexPos[0], s);
+          targetY = THREE.MathUtils.lerp(vt.grabPos[1], vt.apexPos[1], s);
+          targetZ = THREE.MathUtils.lerp(vt.grabPos[2], vt.apexPos[2], s);
+        } else {
+          const u = (progress - 0.70) / 0.30;
+          const s = u * u * (3 - 2 * u);
+          targetX = THREE.MathUtils.lerp(vt.apexPos[0], vt.landPos[0], s);
+          targetY = THREE.MathUtils.lerp(vt.apexPos[1], vt.landPos[1], s);
+          targetZ = THREE.MathUtils.lerp(vt.apexPos[2], vt.landPos[2], s);
+        }
       }
 
       player.position[0] = targetX;
       player.position[1] = targetY;
       player.position[2] = targetZ;
 
-      // Face vault direction
-      const vaultDirX = vt.landPos[0] - vt.startPos[0];
-      const vaultDirZ = vt.landPos[2] - vt.startPos[2];
-      if (Math.hypot(vaultDirX, vaultDirZ) > 0.01) {
-        player.rotationY = Math.atan2(vaultDirX, vaultDirZ);
+      // Face mantle/vault direction
+      const moveDirX = vt.landPos[0] - vt.startPos[0];
+      const moveDirZ = vt.landPos[2] - vt.startPos[2];
+      if (Math.hypot(moveDirX, moveDirZ) > 0.01) {
+        player.rotationY = Math.atan2(moveDirX, moveDirZ);
       }
 
       gameState.setStance(activeId, {
         isSprinting: false,
         isCrouching: false,
         isProne: false,
-        isVaulting: true,
-        stance: 'vaulting',
-        vaultProgress: progress,
+        isVaulting,
+        isMantling,
+        stance: stanceRef.current,
+        vaultProgress: isVaulting ? progress : 0,
+        mantleProgress: isMantling ? progress : 0,
         isGrounded: false,
       });
 
@@ -294,8 +332,8 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         player.position[0] = vt.landPos[0];
         player.position[1] = vt.landPos[1];
         player.position[2] = vt.landPos[2];
-        velocity.current.x = cameraForward.x * (PLAYER_WALK_SPEED * 0.95);
-        velocity.current.z = cameraForward.z * (PLAYER_WALK_SPEED * 0.95);
+        velocity.current.x = cameraForward.x * (PLAYER_WALK_SPEED * 0.85);
+        velocity.current.z = cameraForward.z * (PLAYER_WALK_SPEED * 0.85);
         stanceRef.current = 'standing';
         vaultTargetRef.current = null;
         isGrounded.current = true;
@@ -308,8 +346,10 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         isCrouching,
         isProne,
         isVaulting: false,
+        isMantling: false,
         stance: stanceRef.current,
         vaultProgress: 0,
+        mantleProgress: 0,
         isGrounded: isGrounded.current,
       });
 
@@ -578,9 +618,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       camDist = 2.6;
       camHeight = 1.15;
       shoulderOffset = 0.5;
-    } else if (isVaulting) {
+    } else if (isVaulting || isMantling) {
       camDist = 3.2;
-      camHeight = 1.75;
+      camHeight = isMantling ? 2.1 : 1.75;
       shoulderOffset = 0.45;
     } else if (isSprinting) {
       camDist = 3.6;
