@@ -6,6 +6,7 @@ export const WEAPON_DAMAGE = 34; // Shot 1: 66, Shot 2: 32, Shot 3: 0 (Dead)
 export const PLAYER_WALK_SPEED = 5.2;
 export const PLAYER_SPRINT_SPEED = 8.6;
 export const PLAYER_CROUCH_SPEED = 3.0;
+export const PLAYER_PRONE_SPEED = 1.6;
 export const PLAYER_JUMP_FORCE = 7.2;
 export const GRAVITY = 20.0;
 export const RELOAD_TIME_MS = 1800;
@@ -13,8 +14,21 @@ export const RELOAD_TIME_MS = 1800;
 export const PLAYER_RADIUS = 0.42;
 export const PLAYER_HEIGHT = 1.8;
 export const PLAYER_CROUCH_HEIGHT = 1.25;
+export const PLAYER_PRONE_HEIGHT = 0.5;
 export const MAX_STEP_HEIGHT = 0.35;
 export const PICKUP_DISTANCE = 2.6;
+
+// Vault / Climb parameters (Low Obstacles)
+export const VAULT_MIN_HEIGHT = 0.55;
+export const VAULT_MAX_HEIGHT = 1.35;
+export const VAULT_MAX_DEPTH = 2.8;
+export const VAULT_DURATION = 0.72;
+
+// Wall Mantle parameters (Medium-Height Walls)
+export const MANTLE_MIN_HEIGHT = 1.35;
+export const MANTLE_MAX_HEIGHT = 2.35;
+export const MANTLE_MAX_DEPTH = 1.6;
+export const MANTLE_DURATION = 1.25;
 
 export const PLAYER_SPAWNS: Record<'player1' | 'player2', [number, number, number]> = {
   player1: [-14, 0, 0],

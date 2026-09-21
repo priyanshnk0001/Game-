@@ -1,5 +1,15 @@
 import * as THREE from 'three';
-import { MAP_BOUNDS } from '../../config/constants';
+import {
+  MAP_BOUNDS,
+  VAULT_MIN_HEIGHT,
+  VAULT_MAX_HEIGHT,
+  VAULT_MAX_DEPTH,
+  VAULT_DURATION,
+  MANTLE_MIN_HEIGHT,
+  MANTLE_MAX_HEIGHT,
+  MANTLE_MAX_DEPTH,
+  MANTLE_DURATION,
+} from '../../config/constants';
 
 export interface CollisionBox {
   id: string;
@@ -7,6 +17,17 @@ export interface CollisionBox {
   size: [number, number, number];     // Dimensions [width, height, depth]
   rotationY: number;                  // Rotation around Y axis in radians
   type: 'wall' | 'barrier' | 'bunker' | 'container' | 'building' | 'crate' | 'pillar' | 'rock' | 'tree';
+}
+
+export interface VaultTarget {
+  obstacleId: string;
+  startPos: [number, number, number];
+  grabPos: [number, number, number];
+  apexPos: [number, number, number];
+  landPos: [number, number, number];
+  duration: number;
+  mode: 'vault' | 'mantle';
+  obstacleHeight: number;
 }
 
 export class CollisionWorld {
@@ -100,6 +121,212 @@ export class CollisionWorld {
     }
 
     return highestGround;
+  }
+
+  /**
+   * Verifies if there is adequate vertical clearance above the player to stand or crouch.
+   * Prevents standing up under low ceilings, bunker eaves, or low obstacles.
+   */
+  public static hasVerticalClearance(
+    x: number,
+    y: number,
+    z: number,
+    targetHeight: number,
+    currentHeight: number,
+    radius = 0.38
+  ): boolean {
+    for (const obs of this.obstacles) {
+      const topY = obs.position[1] + obs.size[1] / 2;
+      const bottomY = obs.position[1] - obs.size[1] / 2;
+
+      // Only obstacles that intersect the headroom space above the player are relevant
+      if (bottomY >= y + targetHeight - 0.04) continue; // Plenty of overhead space
+      if (topY <= y + currentHeight + 0.05) continue;   // Surface is below current head
+
+      // Check horizontal footprint in obstacle local coordinates
+      const cos = Math.cos(obs.rotationY);
+      const sin = Math.sin(obs.rotationY);
+      const dx = x - obs.position[0];
+      const dz = z - obs.position[2];
+
+      const lx = cos * dx - sin * dz;
+      const lz = sin * dx + cos * dz;
+
+      const halfX = obs.size[0] / 2 + radius * 0.85;
+      const halfZ = obs.size[2] / 2 + radius * 0.85;
+
+      if (Math.abs(lx) <= halfX && Math.abs(lz) <= halfZ) {
+        return false; // Obstacle blocks standing / rising up!
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Contextual detection of vaultable obstacles directly ahead of the player.
+   * Checks obstacle type, height (waist-to-chest), depth, and clearance of the landing spot on the other side.
+   */
+  public static findVaultableObstacle(
+    playerX: number,
+    playerY: number,
+    playerZ: number,
+    dirX: number,
+    dirZ: number,
+    maxProbeDist = 1.35
+  ): VaultTarget | null {
+    const dirLen = Math.hypot(dirX, dirZ);
+    if (dirLen < 0.01) return null;
+    const ndx = dirX / dirLen;
+    const ndz = dirZ / dirLen;
+
+    for (const obs of this.obstacles) {
+      const topY = obs.position[1] + obs.size[1] / 2;
+      const relHeight = topY - playerY;
+
+      // 1. Low Tactical Obstacles: Quick Vault (waist-to-chest, 0.55m - 1.35m)
+      const isVaultCandidate =
+        (obs.type === 'barrier' || obs.type === 'crate' || obs.type === 'bunker') &&
+        relHeight >= VAULT_MIN_HEIGHT &&
+        relHeight <= VAULT_MAX_HEIGHT;
+
+      // 2. Medium-Height Walls: Two-Handed Wall Climb & Mantle (1.35m - 2.35m)
+      const isMantleCandidate =
+        (obs.type === 'wall' || obs.type === 'barrier' || obs.type === 'bunker' || obs.type === 'crate') &&
+        relHeight >= MANTLE_MIN_HEIGHT &&
+        relHeight <= MANTLE_MAX_HEIGHT;
+
+      if (!isVaultCandidate && !isMantleCandidate) continue;
+
+      const mode: 'vault' | 'mantle' = isMantleCandidate ? 'mantle' : 'vault';
+      const maxDepth = mode === 'mantle' ? MANTLE_MAX_DEPTH : VAULT_MAX_DEPTH;
+      const duration = mode === 'mantle' ? MANTLE_DURATION : VAULT_DURATION;
+
+      // Transform player position and probe ray to obstacle local space
+      const cos = Math.cos(obs.rotationY);
+      const sin = Math.sin(obs.rotationY);
+      const dx = playerX - obs.position[0];
+      const dz = playerZ - obs.position[2];
+
+      const plx = cos * dx - sin * dz;
+      const plz = sin * dx + cos * dz;
+
+      const ldx = cos * ndx - sin * ndz;
+      const ldz = sin * ndx + cos * ndz;
+
+      const halfX = obs.size[0] / 2;
+      const halfZ = obs.size[2] / 2;
+
+      // Ray-AABB intersection in local 2D space
+      let tNear = -Infinity;
+      let tFar = Infinity;
+
+      // X slab
+      if (Math.abs(ldx) > 1e-6) {
+        let t1 = (-halfX - plx) / ldx;
+        let t2 = (halfX - plx) / ldx;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tNear = Math.max(tNear, t1);
+        tFar = Math.min(tFar, t2);
+      } else {
+        if (plx < -halfX || plx > halfX) continue;
+      }
+
+      // Z slab
+      if (Math.abs(ldz) > 1e-6) {
+        let t1 = (-halfZ - plz) / ldz;
+        let t2 = (halfZ - plz) / ldz;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tNear = Math.max(tNear, t1);
+        tFar = Math.min(tFar, t2);
+      } else {
+        if (plz < -halfZ || plz > halfZ) continue;
+      }
+
+      if (tNear > tFar || tFar < 0) continue;
+
+      // Player must be close enough to front edge (between 0.05m and maxProbeDist)
+      const allowedProbe = mode === 'mantle' ? maxProbeDist + 0.25 : maxProbeDist;
+      const distToFront = Math.max(0, tNear);
+      if (distToFront > allowedProbe) continue;
+
+      const obstacleDepth = tFar - distToFront;
+      if (obstacleDepth <= 0.1 || obstacleDepth > maxDepth) continue;
+
+      // Compute world waypoints along the trajectory
+      const startPos: [number, number, number] = [playerX, playerY, playerZ];
+
+      // Hand grab edge: on top surface along the front boundary
+      const grabDist = distToFront + 0.12;
+      const grabPos: [number, number, number] = [
+        playerX + ndx * grabDist,
+        topY,
+        playerZ + ndz * grabDist,
+      ];
+
+      // Apex point: cresting over the middle of the obstacle
+      const apexDist = distToFront + obstacleDepth * 0.5;
+      const apexHeightOffset = mode === 'mantle' ? 0.35 : 0.22;
+      const apexPos: [number, number, number] = [
+        playerX + ndx * apexDist,
+        topY + apexHeightOffset,
+        playerZ + ndz * apexDist,
+      ];
+
+      // Landing point on opposite side: past obstacle back edge by 0.65m
+      const landDist = tFar + 0.65;
+      const rawLandX = playerX + ndx * landDist;
+      const rawLandZ = playerZ + ndz * landDist;
+
+      // Landing space verification: within map bounds
+      if (
+        rawLandX < this.currentBounds.minX + 0.5 ||
+        rawLandX > this.currentBounds.maxX - 0.5 ||
+        rawLandZ < this.currentBounds.minZ + 0.5 ||
+        rawLandZ > this.currentBounds.maxZ - 0.5
+      ) {
+        continue;
+      }
+
+      const landY = this.getGroundHeight(rawLandX, rawLandZ, topY);
+
+      // Verify landing spot is unobstructed by solid walls/buildings
+      let landingBlocked = false;
+      for (const other of this.obstacles) {
+        if (other.id === obs.id) continue;
+        if (other.type === 'wall' || other.type === 'building' || other.type === 'pillar') {
+          const oCos = Math.cos(other.rotationY);
+          const oSin = Math.sin(other.rotationY);
+          const odx = rawLandX - other.position[0];
+          const odz = rawLandZ - other.position[2];
+          const olx = oCos * odx - oSin * odz;
+          const olz = oSin * odx + oCos * odz;
+          if (
+            Math.abs(olx) <= other.size[0] / 2 + 0.35 &&
+            Math.abs(olz) <= other.size[2] / 2 + 0.35
+          ) {
+            landingBlocked = true;
+            break;
+          }
+        }
+      }
+
+      if (landingBlocked) continue;
+
+      const landPos: [number, number, number] = [rawLandX, landY, rawLandZ];
+
+      return {
+        obstacleId: obs.id,
+        startPos,
+        grabPos,
+        apexPos,
+        landPos,
+        duration,
+        mode,
+        obstacleHeight: relHeight,
+      };
+    }
+
+    return null;
   }
 
   /**

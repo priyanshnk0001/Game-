@@ -53,6 +53,12 @@ class GameStateManager {
       isFiring: false,
       isSprinting: false,
       isCrouching: false,
+      isProne: false,
+      isVaulting: false,
+      isMantling: false,
+      stance: 'standing',
+      vaultProgress: 0,
+      mantleProgress: 0,
       isGrounded: true,
       color: '#06b6d4',
       accentColor: '#67e8f9',
@@ -83,6 +89,12 @@ class GameStateManager {
       isFiring: false,
       isSprinting: false,
       isCrouching: false,
+      isProne: false,
+      isVaulting: false,
+      isMantling: false,
+      stance: 'standing',
+      vaultProgress: 0,
+      mantleProgress: 0,
       isGrounded: true,
       color: '#f43f5e',
       accentColor: '#fda4af',
@@ -186,13 +198,29 @@ class GameStateManager {
 
   setStance(
     id: PlayerId,
-    stance: { isSprinting?: boolean; isCrouching?: boolean; isGrounded?: boolean }
+    stanceState: {
+      isSprinting?: boolean;
+      isCrouching?: boolean;
+      isProne?: boolean;
+      isVaulting?: boolean;
+      isMantling?: boolean;
+      stance?: 'standing' | 'crouching' | 'prone' | 'vaulting' | 'mantling';
+      vaultProgress?: number;
+      mantleProgress?: number;
+      isGrounded?: boolean;
+    }
   ) {
     const p = this.players[id];
     if (!p) return;
-    if (typeof stance.isSprinting === 'boolean') p.isSprinting = stance.isSprinting;
-    if (typeof stance.isCrouching === 'boolean') p.isCrouching = stance.isCrouching;
-    if (typeof stance.isGrounded === 'boolean') p.isGrounded = stance.isGrounded;
+    if (typeof stanceState.isSprinting === 'boolean') p.isSprinting = stanceState.isSprinting;
+    if (typeof stanceState.isCrouching === 'boolean') p.isCrouching = stanceState.isCrouching;
+    if (typeof stanceState.isProne === 'boolean') p.isProne = stanceState.isProne;
+    if (typeof stanceState.isVaulting === 'boolean') p.isVaulting = stanceState.isVaulting;
+    if (typeof stanceState.isMantling === 'boolean') p.isMantling = stanceState.isMantling;
+    if (stanceState.stance) p.stance = stanceState.stance;
+    if (typeof stanceState.vaultProgress === 'number') p.vaultProgress = stanceState.vaultProgress;
+    if (typeof stanceState.mantleProgress === 'number') p.mantleProgress = stanceState.mantleProgress;
+    if (typeof stanceState.isGrounded === 'boolean') p.isGrounded = stanceState.isGrounded;
   }
 
   // Pickup weapon: equips to slot 1 or 2, maintains independent state per slot
@@ -499,6 +527,12 @@ class GameStateManager {
       isFiring: false,
       isSprinting: false,
       isCrouching: false,
+      isProne: false,
+      isVaulting: false,
+      isMantling: false,
+      stance: 'standing',
+      vaultProgress: 0,
+      mantleProgress: 0,
       isGrounded: true,
       color: '#06b6d4',
       accentColor: '#67e8f9',
@@ -524,6 +558,12 @@ class GameStateManager {
       isFiring: false,
       isSprinting: false,
       isCrouching: false,
+      isProne: false,
+      isVaulting: false,
+      isMantling: false,
+      stance: 'standing',
+      vaultProgress: 0,
+      mantleProgress: 0,
       isGrounded: true,
       color: '#f43f5e',
       accentColor: '#fda4af',

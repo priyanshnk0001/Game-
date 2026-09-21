@@ -8,7 +8,8 @@ export interface InputState {
   left: boolean;        // A
   right: boolean;       // D
   sprint: boolean;      // Shift (hold)
-  crouch: boolean;      // Ctrl (hold)
+  crouch: boolean;      // C or Ctrl
+  prone: boolean;       // Z
   jump: boolean;        // Space
   reload: boolean;      // R
   interact: boolean;    // E
@@ -28,6 +29,7 @@ class InputManager {
     right: false,
     sprint: false,
     crouch: false,
+    prone: false,
     jump: false,
     reload: false,
     interact: false,
@@ -52,13 +54,7 @@ class InputManager {
     if (this.listenersAttached) return;
     this.listenersAttached = true;
 
-    // Pointer Lock setup
-    canvasElement.addEventListener('click', () => {
-      if (document.pointerLockElement !== this.canvas) {
-        this.canvas?.requestPointerLock();
-      }
-    });
-
+    // Pointer Lock change listener (explicitly triggered via resume controls or modal deploy)
     document.addEventListener('pointerlockchange', () => {
       this.isLocked = document.pointerLockElement === this.canvas;
       this.onLockChangeCallbacks.forEach((cb) => cb(this.isLocked));
@@ -133,9 +129,13 @@ class InputManager {
         case 'ShiftRight':
           this.state.sprint = true;
           break;
+        case 'KeyC':
         case 'ControlLeft':
         case 'ControlRight':
           this.state.crouch = true;
+          break;
+        case 'KeyZ':
+          this.state.prone = true;
           break;
         case 'Space':
           this.state.jump = true;
@@ -190,9 +190,13 @@ class InputManager {
         case 'ShiftRight':
           this.state.sprint = false;
           break;
+        case 'KeyC':
         case 'ControlLeft':
         case 'ControlRight':
           this.state.crouch = false;
+          break;
+        case 'KeyZ':
+          this.state.prone = false;
           break;
         case 'Space':
           this.state.jump = false;
@@ -226,6 +230,11 @@ class InputManager {
 
   // Consume and reset mouse delta per frame
   consumeMouseDelta(): { deltaX: number; deltaY: number } {
+    if (!this.isLocked) {
+      this.mouseDeltaX = 0;
+      this.mouseDeltaY = 0;
+      return { deltaX: 0, deltaY: 0 };
+    }
     const dx = this.mouseDeltaX;
     const dy = this.mouseDeltaY;
     this.mouseDeltaX = 0;
