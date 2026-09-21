@@ -4,10 +4,14 @@ import * as THREE from 'three';
 import { CollisionWorld } from '../collision/CollisionWorld';
 import { PlayerId, PlayerState } from '../../types/game';
 
+export type SurfaceType = 'concrete' | 'metal' | 'wood' | 'stone' | 'ground';
+
 export interface RaycastHitResult {
   hit: boolean;
   hitPlayerId: PlayerId | null;
   hitPoint: [number, number, number];
+  hitNormal?: [number, number, number];
+  surfaceType?: SurfaceType;
   distance: number;
 }
 
@@ -32,6 +36,9 @@ export class RaycastCombatSystem {
 
     let closestDist = maxRange;
     let hitPlayerId: PlayerId | null = null;
+    let finalHitNormal: [number, number, number] | undefined = undefined;
+    let finalSurfaceType: SurfaceType | undefined = undefined;
+
     const finalHitPoint = new THREE.Vector3()
       .copy(origin)
       .addScaledVector(this.ray.direction, maxRange);
@@ -41,6 +48,10 @@ export class RaycastCombatSystem {
     if (obsHit.hit && obsHit.distance < closestDist) {
       closestDist = obsHit.distance;
       finalHitPoint.copy(obsHit.hitPoint);
+      if (obsHit.hitNormal) {
+        finalHitNormal = [obsHit.hitNormal.x, obsHit.hitNormal.y, obsHit.hitNormal.z];
+      }
+      finalSurfaceType = obsHit.surfaceType;
     }
 
     // 2. Check intersection with the opponent player
@@ -63,14 +74,18 @@ export class RaycastCombatSystem {
           closestDist = dist;
           finalHitPoint.copy(this.hitVec);
           hitPlayerId = opponentId;
+          finalHitNormal = undefined;
+          finalSurfaceType = undefined;
         }
       }
     }
 
     return {
-      hit: hitPlayerId !== null,
+      hit: hitPlayerId !== null || obsHit.hit,
       hitPlayerId,
       hitPoint: [finalHitPoint.x, finalHitPoint.y, finalHitPoint.z],
+      hitNormal: finalHitNormal,
+      surfaceType: finalSurfaceType,
       distance: closestDist,
     };
   }

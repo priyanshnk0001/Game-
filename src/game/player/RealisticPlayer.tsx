@@ -12,6 +12,123 @@ interface RealisticPlayerProps {
   isLocal: boolean;
 }
 
+// Pre-allocated scratch objects for zero-allocation 60fps IK calculations
+const _ik_p0 = new THREE.Vector3();
+const _ik_p1 = new THREE.Vector3();
+const _ik_p2 = new THREE.Vector3();
+const _ik_targetVec = new THREE.Vector3();
+const _ik_dirT = new THREE.Vector3();
+const _ik_bendAxis = new THREE.Vector3();
+const _ik_uDir = new THREE.Vector3();
+const _ik_desiredP1 = new THREE.Vector3();
+const _ik_parentQ = new THREE.Quaternion();
+const _ik_invParentQ = new THREE.Quaternion();
+const _ik_curDirUpper = new THREE.Vector3();
+const _ik_newDirUpper = new THREE.Vector3();
+const _ik_qUpperDelta = new THREE.Quaternion();
+const _ik_curWorldQUpper = new THREE.Quaternion();
+const _ik_targetWorldQUpper = new THREE.Quaternion();
+const _ik_resUpperQ = new THREE.Quaternion();
+const _ik_p1New = new THREE.Vector3();
+const _ik_p2New = new THREE.Vector3();
+const _ik_curDirMid = new THREE.Vector3();
+const _ik_newDirMid = new THREE.Vector3();
+const _ik_qMidDelta = new THREE.Quaternion();
+const _ik_midParentQ = new THREE.Quaternion();
+const _ik_invMidParentQ = new THREE.Quaternion();
+const _ik_curWorldQMid = new THREE.Quaternion();
+const _ik_targetWorldQMid = new THREE.Quaternion();
+const _ik_resMidQ = new THREE.Quaternion();
+
+function solveTwoBoneIK(
+  upperBone: THREE.Bone,
+  midBone: THREE.Bone,
+  endBone: THREE.Bone,
+  targetWorldPos: THREE.Vector3,
+  poleWorldDir: THREE.Vector3,
+  blendWeight: number = 1.0
+) {
+  upperBone.updateWorldMatrix(true, false);
+  midBone.updateWorldMatrix(true, false);
+  endBone.updateWorldMatrix(true, false);
+
+  upperBone.getWorldPosition(_ik_p0);
+  midBone.getWorldPosition(_ik_p1);
+  endBone.getWorldPosition(_ik_p2);
+
+  const d1 = _ik_p0.distanceTo(_ik_p1);
+  const d2 = _ik_p1.distanceTo(_ik_p2);
+  _ik_targetVec.subVectors(targetWorldPos, _ik_p0);
+  let dist = _ik_targetVec.length();
+
+  const maxDist = (d1 + d2) * 0.999;
+  const minDist = Math.abs(d1 - d2) * 1.001;
+  dist = Math.max(minDist, Math.min(maxDist, dist));
+  _ik_targetVec.setLength(dist);
+
+  const cosUpper = (d1 * d1 + dist * dist - d2 * d2) / (2 * d1 * dist);
+  const angleUpper = Math.acos(Math.max(-1, Math.min(1, cosUpper)));
+
+  _ik_dirT.copy(_ik_targetVec).normalize();
+  _ik_bendAxis.crossVectors(_ik_dirT, poleWorldDir).normalize();
+  if (_ik_bendAxis.lengthSq() < 0.001) _ik_bendAxis.set(1, 0, 0);
+
+  _ik_uDir.copy(_ik_dirT).applyAxisAngle(_ik_bendAxis, angleUpper).multiplyScalar(d1);
+  _ik_desiredP1.addVectors(_ik_p0, _ik_uDir);
+
+  if (upperBone.parent) {
+    upperBone.parent.getWorldQuaternion(_ik_parentQ);
+  } else {
+    _ik_parentQ.identity();
+  }
+  _ik_invParentQ.copy(_ik_parentQ).invert();
+
+  _ik_curDirUpper.subVectors(_ik_p1, _ik_p0).normalize();
+  _ik_newDirUpper.subVectors(_ik_desiredP1, _ik_p0).normalize();
+  _ik_qUpperDelta.setFromUnitVectors(_ik_curDirUpper, _ik_newDirUpper);
+
+  upperBone.getWorldQuaternion(_ik_curWorldQUpper);
+  _ik_targetWorldQUpper.multiplyQuaternions(_ik_qUpperDelta, _ik_curWorldQUpper);
+  _ik_resUpperQ.multiplyQuaternions(_ik_invParentQ, _ik_targetWorldQUpper);
+
+  if (blendWeight < 0.999) {
+    upperBone.quaternion.slerp(_ik_resUpperQ, blendWeight);
+  } else {
+    upperBone.quaternion.copy(_ik_resUpperQ);
+  }
+
+  upperBone.updateWorldMatrix(true, false);
+  midBone.updateWorldMatrix(true, false);
+  endBone.updateWorldMatrix(true, false);
+
+  midBone.getWorldPosition(_ik_p1New);
+  endBone.getWorldPosition(_ik_p2New);
+  _ik_curDirMid.subVectors(_ik_p2New, _ik_p1New).normalize();
+  _ik_newDirMid.subVectors(targetWorldPos, _ik_p1New).normalize();
+  _ik_qMidDelta.setFromUnitVectors(_ik_curDirMid, _ik_newDirMid);
+
+  if (midBone.parent) {
+    midBone.parent.getWorldQuaternion(_ik_midParentQ);
+  } else {
+    _ik_midParentQ.identity();
+  }
+  _ik_invMidParentQ.copy(_ik_midParentQ).invert();
+
+  midBone.getWorldQuaternion(_ik_curWorldQMid);
+  _ik_targetWorldQMid.multiplyQuaternions(_ik_qMidDelta, _ik_curWorldQMid);
+  _ik_resMidQ.multiplyQuaternions(_ik_invMidParentQ, _ik_targetWorldQMid);
+
+  if (blendWeight < 0.999) {
+    midBone.quaternion.slerp(_ik_resMidQ, blendWeight);
+  } else {
+    midBone.quaternion.copy(_ik_resMidQ);
+  }
+
+  upperBone.updateWorldMatrix(true, false);
+  midBone.updateWorldMatrix(true, false);
+  endBone.updateWorldMatrix(true, false);
+}
+
 export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLocal }) => {
   const rootGroupRef = useRef<THREE.Group>(null);
   const characterGroupRef = useRef<THREE.Group>(null);
@@ -140,6 +257,8 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
   const transitionProgress1Ref = useRef<number>(player.activeSlot === 1 && player.weaponState === 'ready' ? 1.0 : 0.0);
   const transitionProgress2Ref = useRef<number>(player.activeSlot === 2 && player.weaponState === 'ready' ? 1.0 : 0.0);
   const aimProgressRef = useRef<number>(player.isAiming ? 1.0 : 0.0);
+  // Physical 3D weapon recoil kick impulse (0.0 to 1.0)
+  const recoilKickRef = useRef<number>(0);
 
   // Discover and cache skeleton bones & attach back mounts to Spine2
   useEffect(() => {
@@ -256,6 +375,12 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
     const crouchT = crouchAmountRef.current;
     const proneT = proneAmountRef.current;
+
+    // Physical weapon recoil impulse simulation
+    if (player.isFiring && !player.isDead) {
+      recoilKickRef.current = Math.min(1.0, recoilKickRef.current + 0.65);
+    }
+    recoilKickRef.current = THREE.MathUtils.damp(recoilKickRef.current, 0, 16.0, delta);
 
     // Smooth weapon state transition and ADS aiming interpolation
     const isSlot1Ready = player.activeSlot === 1 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
@@ -580,6 +705,23 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     }
 
     // 5. Procedural Arm Posing (Wall Mantle vs Vaulting vs Stance x Aim Matrix vs Prone Support)
+    const backPos1 = new THREE.Vector3();
+    const backQuat1 = new THREE.Quaternion();
+    const backPos2 = new THREE.Vector3();
+    const backQuat2 = new THREE.Quaternion();
+
+    if (spineBoneRef.current) {
+      backMount1.updateWorldMatrix(true, false);
+      backMount2.updateWorldMatrix(true, false);
+      backMount1.getWorldPosition(backPos1);
+      backMount1.getWorldQuaternion(backQuat1);
+      backMount2.getWorldPosition(backPos2);
+      backMount2.getWorldQuaternion(backQuat2);
+    }
+
+    let readyPos = backPos1;
+    let readyQuat = backQuat1;
+
     if (player.isMantling && !player.isDead) {
       const mp = player.mantleProgress ?? 0;
 
@@ -661,154 +803,177 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       if (leftForeArmRef.current) leftForeArmRef.current.quaternion.slerp(leftForeArmVault, 0.85);
       if (leftHandRef.current) leftHandRef.current.quaternion.slerp(leftHandVault, 0.85);
     } else if (tArms > 0.002 && !player.isDead) {
-      // Weapon Ready Arm Posing: Dedicated Stance x Aim Matrix
-      const isProneArmed = proneT > 0.1;
-      const crawlArmShuffle = isProneArmed && isMoving ? Math.sin(crawlPhase) * 0.10 * proneT : 0;
+      // 5. Authentic Two-Handed Tactical Weapon Pose & Analytical Two-Bone IK
+      // Refresh shoulder matrices
+      if (rightArmRef.current) rightArmRef.current.updateWorldMatrix(true, false);
+      if (leftArmRef.current) leftArmRef.current.updateWorldMatrix(true, false);
 
-      // 1. Standing: blend between Low-Ready (Reference Image 2) and Standing-Aim (Reference Image 4) by `at`
-      const stand_rArmX = THREE.MathUtils.lerp(0.95, 1.52, at);
-      const stand_rArmY = THREE.MathUtils.lerp(-0.42, -0.82, at);
-      const stand_rArmZ = THREE.MathUtils.lerp(-0.10, 0.06, at);
+      const rArmWorld = new THREE.Vector3();
+      const lArmWorld = new THREE.Vector3();
+      if (rightArmRef.current) rightArmRef.current.getWorldPosition(rArmWorld);
+      if (leftArmRef.current) leftArmRef.current.getWorldPosition(lArmWorld);
 
-      const stand_rForeArmX = THREE.MathUtils.lerp(1.26, 0.96, at);
-      const stand_rForeArmY = THREE.MathUtils.lerp(0.46, 0.58, at);
-      const stand_rForeArmZ = THREE.MathUtils.lerp(-0.04, -0.05, at);
+      const worldUp = new THREE.Vector3(0, 1, 0);
+      const playerHeading = new THREE.Vector3(0, 0, 1).applyAxisAngle(worldUp, player.rotationY);
+      const playerRight = new THREE.Vector3(1, 0, 0).applyAxisAngle(worldUp, player.rotationY);
 
-      const stand_lShoulderX = THREE.MathUtils.lerp(0.35, 0.85, at);
-      const stand_lShoulderY = THREE.MathUtils.lerp(0.40, 0.95, at);
-      const stand_lShoulderZ = THREE.MathUtils.lerp(0.15, 0.45, at);
+      // Relaxed Low-Ready Forward (points forward and ~15 deg down across chest)
+      const lowReadyForward = playerHeading.clone().addScaledVector(worldUp, -0.25).normalize();
+      const proneLowReady = playerHeading.clone().addScaledVector(worldUp, 0.02).normalize();
+      const effectiveLowReady = proneT > 0.4 ? proneLowReady : lowReadyForward;
 
-      const stand_lArmX = THREE.MathUtils.lerp(-0.20, -0.62, at);
-      const stand_lArmY = THREE.MathUtils.lerp(0.80, 1.15, at);
-      const stand_lArmZ = THREE.MathUtils.lerp(0.50, 0.72, at);
-
-      const stand_lForeArmX = THREE.MathUtils.lerp(0.35, -0.18, at);
-      const stand_lForeArmY = THREE.MathUtils.lerp(-1.05, -1.42, at);
-      const stand_lForeArmZ = THREE.MathUtils.lerp(-0.35, -0.18, at);
-
-      // 2. Crouch: blend between Crouch-Low-Ready (Reference Image 3) and Crouch-Aim (Reference Image 5) by `at`
-      const crouch_rArmX = THREE.MathUtils.lerp(0.90, 1.50, at);
-      const crouch_rArmY = THREE.MathUtils.lerp(-0.38, -0.80, at);
-      const crouch_rArmZ = THREE.MathUtils.lerp(-0.08, 0.08, at);
-
-      const crouch_rForeArmX = THREE.MathUtils.lerp(1.22, 0.95, at);
-      const crouch_rForeArmY = THREE.MathUtils.lerp(0.42, 0.55, at);
-      const crouch_rForeArmZ = THREE.MathUtils.lerp(-0.04, -0.05, at);
-
-      const crouch_lShoulderX = THREE.MathUtils.lerp(0.30, 0.88, at);
-      const crouch_lShoulderY = THREE.MathUtils.lerp(0.35, 0.98, at);
-      const crouch_lShoulderZ = THREE.MathUtils.lerp(0.12, 0.48, at);
-
-      const crouch_lArmX = THREE.MathUtils.lerp(-0.16, -0.60, at);
-      const crouch_lArmY = THREE.MathUtils.lerp(0.75, 1.12, at);
-      const crouch_lArmZ = THREE.MathUtils.lerp(0.46, 0.70, at);
-
-      const crouch_lForeArmX = THREE.MathUtils.lerp(0.32, -0.16, at);
-      const crouch_lForeArmY = THREE.MathUtils.lerp(-1.02, -1.40, at);
-      const crouch_lForeArmZ = THREE.MathUtils.lerp(-0.32, -0.16, at);
-
-      // 3. Upright: blend between Standing and Crouch with `crouchT`
-      const upright_rArmX = THREE.MathUtils.lerp(stand_rArmX, crouch_rArmX, crouchT);
-      const upright_rArmY = THREE.MathUtils.lerp(stand_rArmY, crouch_rArmY, crouchT);
-      const upright_rArmZ = THREE.MathUtils.lerp(stand_rArmZ, crouch_rArmZ, crouchT);
-
-      const upright_rForeArmX = THREE.MathUtils.lerp(stand_rForeArmX, crouch_rForeArmX, crouchT);
-      const upright_rForeArmY = THREE.MathUtils.lerp(stand_rForeArmY, crouch_rForeArmY, crouchT);
-      const upright_rForeArmZ = THREE.MathUtils.lerp(stand_rForeArmZ, crouch_rForeArmZ, crouchT);
-
-      const upright_lShoulderX = THREE.MathUtils.lerp(stand_lShoulderX, crouch_lShoulderX, crouchT);
-      const upright_lShoulderY = THREE.MathUtils.lerp(stand_lShoulderY, crouch_lShoulderY, crouchT);
-      const upright_lShoulderZ = THREE.MathUtils.lerp(stand_lShoulderZ, crouch_lShoulderZ, crouchT);
-
-      const upright_lArmX = THREE.MathUtils.lerp(stand_lArmX, crouch_lArmX, crouchT);
-      const upright_lArmY = THREE.MathUtils.lerp(stand_lArmY, crouch_lArmY, crouchT);
-      const upright_lArmZ = THREE.MathUtils.lerp(stand_lArmZ, crouch_lArmZ, crouchT);
-
-      const upright_lForeArmX = THREE.MathUtils.lerp(stand_lForeArmX, crouch_lForeArmX, crouchT);
-      const upright_lForeArmY = THREE.MathUtils.lerp(stand_lForeArmY, crouch_lForeArmY, crouchT);
-      const upright_lForeArmZ = THREE.MathUtils.lerp(stand_lForeArmZ, crouch_lForeArmZ, crouchT);
-
-      // 4. Prone Armed: elbows support on ground, weapon cradled above ground
-      const prone_rArmX = THREE.MathUtils.lerp(1.42, 1.46, at) + crawlArmShuffle;
-      const prone_rArmY = THREE.MathUtils.lerp(-0.85, -0.82, at);
-      const prone_rArmZ = THREE.MathUtils.lerp(0.02, 0.04, at);
-
-      const prone_rForeArmX = THREE.MathUtils.lerp(1.02, 1.04, at);
-      const prone_rForeArmY = THREE.MathUtils.lerp(0.60, 0.56, at);
-      const prone_rForeArmZ = THREE.MathUtils.lerp(-0.06, -0.05, at);
-
-      const prone_lShoulderX = 0.95;
-      const prone_lShoulderY = 1.05;
-      const prone_lShoulderZ = 0.50;
-
-      const prone_lArmX = THREE.MathUtils.lerp(-0.55, -0.56, at) - crawlArmShuffle;
-      const prone_lArmY = THREE.MathUtils.lerp(1.05, 1.06, at);
-      const prone_lArmZ = THREE.MathUtils.lerp(0.65, 0.68, at);
-
-      const prone_lForeArmX = THREE.MathUtils.lerp(0.85, 0.88, at);
-      const prone_lForeArmY = THREE.MathUtils.lerp(-0.20, -0.22, at);
-      const prone_lForeArmZ = THREE.MathUtils.lerp(-1.30, -1.28, at);
-
-      // 5. Final continuous blend between Upright and Prone with `proneT`
-      const final_rArmX = THREE.MathUtils.lerp(upright_rArmX, prone_rArmX, proneT);
-      const final_rArmY = THREE.MathUtils.lerp(upright_rArmY, prone_rArmY, proneT);
-      const final_rArmZ = THREE.MathUtils.lerp(upright_rArmZ, prone_rArmZ, proneT);
-
-      const final_rForeArmX = THREE.MathUtils.lerp(upright_rForeArmX, prone_rForeArmX, proneT);
-      const final_rForeArmY = THREE.MathUtils.lerp(upright_rForeArmY, prone_rForeArmY, proneT);
-      const final_rForeArmZ = THREE.MathUtils.lerp(upright_rForeArmZ, prone_rForeArmZ, proneT);
-
-      const final_lShoulderX = THREE.MathUtils.lerp(upright_lShoulderX, prone_lShoulderX, proneT);
-      const final_lShoulderY = THREE.MathUtils.lerp(upright_lShoulderY, prone_lShoulderY, proneT);
-      const final_lShoulderZ = THREE.MathUtils.lerp(upright_lShoulderZ, prone_lShoulderZ, proneT);
-
-      const final_lArmX = THREE.MathUtils.lerp(upright_lArmX, prone_lArmX, proneT);
-      const final_lArmY = THREE.MathUtils.lerp(upright_lArmY, prone_lArmY, proneT);
-      const final_lArmZ = THREE.MathUtils.lerp(upright_lArmZ, prone_lArmZ, proneT);
-
-      const final_lForeArmX = THREE.MathUtils.lerp(upright_lForeArmX, prone_lForeArmX, proneT);
-      const final_lForeArmY = THREE.MathUtils.lerp(upright_lForeArmY, prone_lForeArmY, proneT);
-      const final_lForeArmZ = THREE.MathUtils.lerp(upright_lForeArmZ, prone_lForeArmZ, proneT);
-
-      const rightArmTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(final_rArmX, final_rArmY, final_rArmZ)
-      );
-      const rightForeArmTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(final_rForeArmX, final_rForeArmY, final_rForeArmZ)
-      );
-      const rightHandTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(0.12, -0.18, 0.12)
-      );
-
-      const leftShoulderTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(final_lShoulderX, final_lShoulderY, final_lShoulderZ)
-      );
-      const leftArmTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(final_lArmX, final_lArmY, final_lArmZ)
-      );
-      const leftForeArmTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(final_lForeArmX, final_lForeArmY, final_lForeArmZ)
-      );
-      const leftHandTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(-0.12, 0.22, -0.18)
-      );
-
-      // Right shoulder tucks back into buttstock pocket when aiming
-      if (rightShoulderRef.current && at > 0.01) {
-        const rShoulderPocket = baseRightShoulderRef.current.clone().multiply(
-          new THREE.Quaternion().setFromEuler(new THREE.Euler(0.08 * at, -0.12 * at, 0.06 * at))
-        );
-        rightShoulderRef.current.quaternion.slerp(rShoulderPocket, tArms * (1.0 - proneT) * at);
+      // Authoritative Aim Direction toward Screen-Center Camera Aim Target
+      let aimTargetForward: THREE.Vector3;
+      if (player.aimTarget) {
+        const targetVec = new THREE.Vector3(...player.aimTarget);
+        aimTargetForward = new THREE.Vector3().subVectors(targetVec, rArmWorld).normalize();
+      } else {
+        aimTargetForward = playerHeading.clone();
       }
 
-      if (rightArmRef.current) rightArmRef.current.quaternion.slerp(rightArmTarget, tArms);
-      if (rightForeArmRef.current) rightForeArmRef.current.quaternion.slerp(rightForeArmTarget, tArms);
-      if (rightHandRef.current) rightHandRef.current.quaternion.slerp(rightHandTarget, tArms);
+      // Smooth continuous transition from Low-Ready carry to ADS Aim Target
+      const aimFactor = Math.max(at, player.isFiring ? 1.0 : 0.0);
+      const weaponForward = new THREE.Vector3().lerpVectors(effectiveLowReady, aimTargetForward, aimFactor).normalize();
 
-      if (leftShoulderRef.current) leftShoulderRef.current.quaternion.slerp(leftShoulderTarget, tArms);
-      if (leftArmRef.current) leftArmRef.current.quaternion.slerp(leftArmTarget, tArms);
-      if (leftForeArmRef.current) leftForeArmRef.current.quaternion.slerp(leftForeArmTarget, tArms);
-      if (leftHandRef.current) leftHandRef.current.quaternion.slerp(leftHandTarget, tArms);
+      const weaponRight = new THREE.Vector3().crossVectors(worldUp, weaponForward).normalize();
+      const weaponUp = new THREE.Vector3().crossVectors(weaponForward, weaponRight).normalize();
+      const readyMat = new THREE.Matrix4().makeBasis(weaponRight, weaponUp, weaponForward);
+      readyQuat = new THREE.Quaternion().setFromRotationMatrix(readyMat);
+
+      // 1. Upright (Standing & Crouch) weapon positioning:
+      // In Low-Ready: rifle resting in front of upper chest, buttstock near dominant shoulder pocket
+      const lowReadyPos = rArmWorld.clone()
+        .addScaledVector(playerHeading, 0.15)
+        .addScaledVector(worldUp, -0.15)
+        .addScaledVector(playerRight, -0.04);
+
+      // In ADS: rifle raised to eye level, buttstock pressed into shoulder pocket, barrel aligned with sight line
+      const adsPos = rArmWorld.clone()
+        .addScaledVector(weaponForward, 0.22)
+        .addScaledVector(worldUp, -0.03)
+        .addScaledVector(playerRight, -0.01);
+
+      const uprightWeaponPos = new THREE.Vector3().lerpVectors(lowReadyPos, adsPos, aimFactor);
+
+      // 2. Prone weapon positioning:
+      // Weapon rests naturally above ground in front of chest
+      const proneWeaponPos = rArmWorld.clone()
+        .addScaledVector(playerHeading, 0.12)
+        .addScaledVector(worldUp, 0.02)
+        .addScaledVector(playerRight, -0.05);
+
+      const proneAdsWeaponPos = rArmWorld.clone()
+        .addScaledVector(weaponForward, 0.18)
+        .addScaledVector(worldUp, 0.05)
+        .addScaledVector(playerRight, -0.03);
+
+      const finalProneWeaponPos = new THREE.Vector3().lerpVectors(proneWeaponPos, proneAdsWeaponPos, aimFactor);
+
+      // Final continuous blend across stances
+      readyPos = new THREE.Vector3().lerpVectors(uprightWeaponPos, finalProneWeaponPos, proneT);
+
+      // AAA 3D Physical Weapon Recoil Simulation:
+      // Stance damping: Prone has highest stability (35% reduction), Crouch has 20% reduction
+      const stanceRecoilFactor = 1.0 - proneT * 0.35 - crouchT * 0.20;
+      const kick = recoilKickRef.current * stanceRecoilFactor;
+
+      if (kick > 0.001) {
+        // 1. Physical rearward recoil displacement into shoulder pocket (~3.5cm kickback)
+        readyPos.addScaledVector(weaponForward, -0.035 * kick);
+        // 2. Vertical muzzle lift translation (~1.2cm rise)
+        readyPos.addScaledVector(worldUp, 0.012 * kick);
+
+        // 3. Rotational pitch kick (barrel pivots upward around weapon right axis)
+        const kickPitchQuat = new THREE.Quaternion().setFromAxisAngle(weaponRight, -0.045 * kick);
+        readyQuat.premultiply(kickPitchQuat);
+
+        // 4. Subtle weapon roll kick from bolt cycle and rifling torque
+        const kickRollQuat = new THREE.Quaternion().setFromAxisAngle(weaponForward, 0.015 * kick);
+        readyQuat.premultiply(kickRollQuat);
+      }
+
+      // Hand contact points on rifle (measured directly from weapon mesh)
+      const isRifle = player.activeSlot === 1 || !player.inventory.slot2;
+      const rHandOffset = isRifle
+        ? new THREE.Vector3(-0.024, -0.029, -0.074)
+        : new THREE.Vector3(-0.020, -0.025, -0.050);
+      const lHandOffset = isRifle
+        ? new THREE.Vector3(0.046, 0.025, 0.17)
+        : new THREE.Vector3(0.035, 0.020, 0.12);
+
+      const rHandTargetWorld = rHandOffset.clone().applyQuaternion(readyQuat).add(readyPos);
+      const lHandTargetWorld = lHandOffset.clone().applyQuaternion(readyQuat).add(readyPos);
+
+      // Shoulder posture: subtle tactical shoulder pocketing with recoil shockwave reaction
+      if (rightShoulderRef.current && (at > 0.01 || kick > 0.01)) {
+        const rShoulderPocket = baseRightShoulderRef.current.clone().multiply(
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(0.08 * at + 0.04 * kick, -0.12 * at, 0.06 * at))
+        );
+        rightShoulderRef.current.quaternion.slerp(rShoulderPocket, tArms * (1.0 - proneT) * Math.max(at, kick * 0.8));
+      }
+      if (leftShoulderRef.current) {
+        const lShoulderForward = baseLeftShoulderRef.current.clone().multiply(
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(0.05 * tArms, 0.08 * tArms, -0.04 * tArms))
+        );
+        leftShoulderRef.current.quaternion.slerp(lShoulderForward, tArms * (1.0 - proneT));
+      }
+
+      // Pole vectors for realistic anatomical elbow bends:
+      // Right elbow: points down, slightly back and outward, tucked against ribs
+      const rPole = proneT > 0.4
+        ? new THREE.Vector3().addScaledVector(worldUp, -0.5).addScaledVector(playerRight, 0.7).normalize()
+        : new THREE.Vector3().addScaledVector(worldUp, -0.6).addScaledVector(playerRight, 0.5).addScaledVector(playerHeading, -0.3).normalize();
+
+      // Left elbow: points down and forward/left, supporting handguard
+      const lPole = proneT > 0.4
+        ? new THREE.Vector3().addScaledVector(worldUp, -0.5).addScaledVector(playerRight, -0.7).normalize()
+        : new THREE.Vector3().addScaledVector(worldUp, -0.6).addScaledVector(playerRight, -0.4).addScaledVector(playerHeading, 0.4).normalize();
+
+      // Solve Two-Bone IK for Right Arm (reaches pistol grip)
+      if (rightArmRef.current && rightForeArmRef.current && rightHandRef.current) {
+        solveTwoBoneIK(
+          rightArmRef.current,
+          rightForeArmRef.current,
+          rightHandRef.current,
+          rHandTargetWorld,
+          rPole,
+          tArms
+        );
+
+        // Orient right hand to grip pistol handle
+        const rHandWorldQ = readyQuat.clone().multiply(
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(0.15, -0.18, 0.10))
+        );
+        const rForeWorldQ = new THREE.Quaternion();
+        rightForeArmRef.current.getWorldQuaternion(rForeWorldQ);
+        const rHandLocalQ = rForeWorldQ.invert().multiply(rHandWorldQ);
+        rightHandRef.current.quaternion.slerp(rHandLocalQ, tArms);
+      }
+
+      // Solve Two-Bone IK for Left Arm (reaches front handguard)
+      if (leftArmRef.current && leftForeArmRef.current && leftHandRef.current) {
+        solveTwoBoneIK(
+          leftArmRef.current,
+          leftForeArmRef.current,
+          leftHandRef.current,
+          lHandTargetWorld,
+          lPole,
+          tArms
+        );
+
+        // Orient left hand to cradle bottom of handguard
+        const lHandWorldQ = readyQuat.clone().multiply(
+          new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.25, 0.30, -0.15))
+        );
+        const lForeWorldQ = new THREE.Quaternion();
+        leftForeArmRef.current.getWorldQuaternion(lForeWorldQ);
+        const lHandLocalQ = lForeWorldQ.invert().multiply(lHandWorldQ);
+        leftHandRef.current.quaternion.slerp(lHandLocalQ, tArms);
+      }
+
+      // Record exact world muzzle position for authoritative bullet tracer origin (0.67m down barrel)
+      const muzzlePos = new THREE.Vector3().copy(readyPos).addScaledVector(weaponForward, 0.67);
+      player.muzzlePos = [muzzlePos.x, muzzlePos.y, muzzlePos.z];
     } else if (proneT > 0.05 && !player.isDead) {
       // Unarmed Prone: forearms positioned forward on ground supporting upper body
       // When crawling forward: alternating crawl stroke (contralateral pull)
@@ -836,67 +1001,6 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
     // 7. Smooth Weapon Socket Interpolation for Slot 1 and Slot 2
     if (spineBoneRef.current) {
-      backMount1.updateWorldMatrix(true, false);
-      backMount2.updateWorldMatrix(true, false);
-
-      const backPos1 = new THREE.Vector3();
-      const backQuat1 = new THREE.Quaternion();
-      backMount1.getWorldPosition(backPos1);
-      backMount1.getWorldQuaternion(backQuat1);
-
-      const backPos2 = new THREE.Vector3();
-      const backQuat2 = new THREE.Quaternion();
-      backMount2.getWorldPosition(backPos2);
-      backMount2.getWorldQuaternion(backQuat2);
-
-      // In READY state: weapon transform is calculated directly from the two hands
-      let readyPos = backPos1;
-      let readyQuat = backQuat1;
-
-      if (rightHandRef.current && leftHandRef.current) {
-        rightHandRef.current.updateWorldMatrix(true, false);
-        leftHandRef.current.updateWorldMatrix(true, false);
-
-        const rHandWorld = new THREE.Vector3();
-        const lHandWorld = new THREE.Vector3();
-        rightHandRef.current.getWorldPosition(rHandWorld);
-        leftHandRef.current.getWorldPosition(lHandWorld);
-
-        readyPos = rHandWorld;
-
-        // Player forward heading vector
-        const playerHeading = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotationY);
-
-        // Relaxed Low-Ready Forward (points forward and ~22 deg down across the waist/lap)
-        const lowReadyForward = playerHeading.clone().addScaledVector(new THREE.Vector3(0, -1, 0), 0.36).normalize();
-        const proneLowReady = playerHeading.clone();
-        const effectiveLowReady = proneT > 0.4 ? proneLowReady : lowReadyForward;
-
-        // Authoritative Aim Direction toward Screen-Center Camera Aim Target
-        let aimTargetForward: THREE.Vector3;
-        if (player.aimTarget) {
-          const targetVec = new THREE.Vector3(...player.aimTarget);
-          aimTargetForward = new THREE.Vector3().subVectors(targetVec, readyPos).normalize();
-        } else {
-          aimTargetForward = playerHeading.clone();
-        }
-
-        // Smooth continuous transition from Low-Ready carry to ADS Aim Target
-        const aimFactor = Math.max(at, player.isFiring ? 1.0 : 0.0);
-        const weaponForward = new THREE.Vector3().lerpVectors(effectiveLowReady, aimTargetForward, aimFactor).normalize();
-
-        const worldUp = new THREE.Vector3(0, 1, 0);
-        const weaponRight = new THREE.Vector3().crossVectors(worldUp, weaponForward).normalize();
-        const weaponUp = new THREE.Vector3().crossVectors(weaponForward, weaponRight).normalize();
-
-        const readyMat = new THREE.Matrix4().makeBasis(weaponRight, weaponUp, weaponForward);
-        readyQuat = new THREE.Quaternion().setFromRotationMatrix(readyMat);
-
-        // Record exact world muzzle position for authoritative bullet tracer origin (0.67m down barrel)
-        const muzzlePos = new THREE.Vector3().copy(readyPos).addScaledVector(weaponForward, 0.67);
-        player.muzzlePos = [muzzlePos.x, muzzlePos.y, muzzlePos.z];
-      }
-
       // Slot 1 weapon positioning: backMount1 <-> ready hands
       if (weaponSocket1Ref.current) {
         weaponSocket1Ref.current.position.lerpVectors(backPos1, readyPos, t1);

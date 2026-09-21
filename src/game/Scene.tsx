@@ -8,6 +8,7 @@ import { MAPS } from '../config/maps';
 import { RealisticWeaponPickup } from './weapons/RealisticWeaponPickup';
 import { RealisticPlayer } from './player/RealisticPlayer';
 import { BulletManager } from './combat/BulletManager';
+import { DecalManager } from './combat/DecalManager';
 import { PlayerController } from './players/PlayerController';
 import { CollisionDebugVisualizer } from './collision/CollisionDebugVisualizer';
 import { AimDebugMarker } from './combat/AimDebugMarker';
@@ -90,7 +91,10 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
       {/* 6. High-Velocity Bullet Tracers and Impact Sparks */}
       <BulletManager bullets={state.bullets} />
 
-      {/* 7. Tactical Third-Person Player Controller */}
+      {/* 7. Bullet Impact Marks / Decals on Solid Surfaces */}
+      <DecalManager decals={state.decals} />
+
+      {/* 8. Tactical Third-Person Player Controller */}
       <PlayerController
         activeId={activeId}
         onNearWeaponChange={onNearWeaponChange}

@@ -39,6 +39,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   const yawRef = useRef<number>(activeId === 'player1' ? 0 : Math.PI);
   const pitchRef = useRef<number>(0);
   const recoilPitchRef = useRef<number>(0);
+  const recoilYawRef = useRef<number>(0);
 
   // Velocity & physics state
   const velocity = useRef(new THREE.Vector3());
@@ -100,11 +101,17 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     // Clamp vertical camera pitch between -70° and +70°
     pitchRef.current = Math.max(-1.22, Math.min(1.22, pitchRef.current));
 
-    // Smooth recoil recovery
-    if (recoilPitchRef.current > 0.001) {
-      recoilPitchRef.current = THREE.MathUtils.lerp(recoilPitchRef.current, 0, delta * 14);
+    // Smooth recoil recovery (critically damped return to center)
+    if (Math.abs(recoilPitchRef.current) > 0.0001) {
+      recoilPitchRef.current = THREE.MathUtils.damp(recoilPitchRef.current, 0, 8.5, delta);
     } else {
       recoilPitchRef.current = 0;
+    }
+
+    if (Math.abs(recoilYawRef.current) > 0.0001) {
+      recoilYawRef.current = THREE.MathUtils.damp(recoilYawRef.current, 0, 10.0, delta);
+    } else {
+      recoilYawRef.current = 0;
     }
 
     // Landing camera dip recovery
@@ -464,8 +471,8 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         const camAngle = Math.atan2(cameraForward.x, cameraForward.z);
         let targetFacingAngle = player.rotationY;
 
-        if (isAiming || isProne) {
-          // When aiming or prone: face camera/crosshair direction
+        if (isAiming) {
+          // When aiming: face camera/crosshair direction
           targetFacingAngle = camAngle;
         } else if (hasMoveInput) {
           if (input.backward && !input.forward && !input.left && !input.right) {
@@ -537,11 +544,23 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         if (canShoot) {
           lastShotTimeRef.current = now;
 
-          // Camera recoil kick
-          recoilPitchRef.current = Math.min(
-            0.075,
-            recoilPitchRef.current + (weaponDef.type === 'rifle' ? 0.026 : 0.018)
-          );
+          // Realistic Camera / Aim Recoil Kick
+          // Stance modifiers: Prone provides 40% reduction, Crouch provides 20% reduction
+          const stanceRecoilMult = isProne ? 0.60 : isCrouching ? 0.80 : 1.0;
+          // ADS modifier: tighter vertical kick (30% reduction) and tighter horizontal drift (50% reduction)
+          const adsPitchMult = isAiming ? 0.70 : 1.0;
+          const adsYawMult = isAiming ? 0.50 : 1.0;
+
+          // Vertical pitch impulse (M16A2 rifle vs secondary)
+          const basePitchKick = weaponDef.type === 'rifle' ? 0.024 : 0.016;
+          const pitchKick = basePitchKick * stanceRecoilMult * adsPitchMult;
+          // Stack vertical kick up to realistic tactical ceiling ~9.5° (0.165 rad)
+          recoilPitchRef.current = Math.min(0.165, recoilPitchRef.current + pitchKick);
+
+          // Subtle horizontal recoil drift with slight rightward rifling torque bias
+          const yawDriftRange = weaponDef.type === 'rifle' ? 0.014 : 0.009;
+          const yawKick = ((Math.random() - 0.46) * yawDriftRange) * stanceRecoilMult * adsYawMult;
+          recoilYawRef.current = Math.max(-0.06, Math.min(0.06, recoilYawRef.current + yawKick));
 
           // Muzzle flash
           gameState.setFiring(activeId, true);
@@ -585,6 +604,17 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
           if (hitResult.hit && hitResult.hitPlayerId) {
             gameState.applyDamage(hitResult.hitPlayerId, activeId, WEAPON_DAMAGE);
+          } else if (hitResult.hitNormal) {
+            gameState.addDecal({
+              id: Math.random().toString(36).substring(2, 9),
+              position: hitResult.hitPoint,
+              normal: hitResult.hitNormal,
+              surfaceType: hitResult.surfaceType || 'concrete',
+              timestamp: now,
+              rotationZ: Math.random() * Math.PI * 2,
+              variant: Math.floor(Math.random() * 6),
+              scale: 0.85 + Math.random() * 0.40,
+            });
           }
         }
       }
@@ -632,7 +662,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const isMoving = velocity.current.lengthSq() > 0.1;
     const bobOffset = isMoving ? Math.sin(bobTimeRef.current) * (isSprinting ? 0.04 : isProne ? 0.015 : 0.02) : 0;
 
-    const yaw = yawRef.current;
+    const yaw = yawRef.current + recoilYawRef.current;
     const totalPitch = pitchRef.current + recoilPitchRef.current;
 
     const headY = player.isDead

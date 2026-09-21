@@ -13,6 +13,7 @@ import {
   PlayerState,
   WeaponGroundItem,
   BulletTracer,
+  BulletImpactDecal,
   MatchState,
   HitFeedbackData,
   MapId,
@@ -132,6 +133,7 @@ class GameStateManager {
 
   public activePlayerId: PlayerId = 'player1';
   public bullets: BulletTracer[] = [];
+  public decals: BulletImpactDecal[] = [];
   public hitFeedbacks: HitFeedbackData[] = [];
   public isMultiplayer = false;
   public networkRole: 'host' | 'client' | 'local' = 'local';
@@ -435,6 +437,25 @@ class GameStateManager {
     }
   }
 
+  addDecal(decal: BulletImpactDecal) {
+    this.decals.push(decal);
+    // Keep max 80 active decals (FIFO) to maintain AAA 60fps performance
+    if (this.decals.length > 80) {
+      this.decals.shift();
+    }
+    this.notify();
+  }
+
+  clearExpiredDecals() {
+    const now = Date.now();
+    const prevLen = this.decals.length;
+    // Decals persist for 8.0s (0-4s full, 4-8s smooth fade out)
+    this.decals = this.decals.filter((d) => now - d.timestamp < 8000);
+    if (this.decals.length !== prevLen) {
+      this.notify();
+    }
+  }
+
   switchMap(mapId: MapId) {
     if (!MAPS[mapId]) return;
     this.activeMapId = mapId;
@@ -487,6 +508,7 @@ class GameStateManager {
       eliminationMessage: null,
     };
     this.bullets = [];
+    this.decals = [];
     this.hitFeedbacks = [];
 
     this.notify();
@@ -598,6 +620,7 @@ class GameStateManager {
     };
 
     this.bullets = [];
+    this.decals = [];
     this.hitFeedbacks = [];
     this.notify();
   }

@@ -72,6 +72,17 @@ export interface BulletTracer {
   color: string;
 }
 
+export interface BulletImpactDecal {
+  id: string;
+  position: [number, number, number];
+  normal: [number, number, number];
+  surfaceType: 'concrete' | 'metal' | 'wood' | 'stone' | 'ground';
+  timestamp: number;
+  rotationZ: number;
+  variant?: number;
+  scale?: number;
+}
+
 export interface MatchState {
   status: 'playing' | 'ended';
   winner: PlayerId | null;
