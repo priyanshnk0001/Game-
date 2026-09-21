@@ -316,16 +316,126 @@ export const LargeMapModal: React.FC<LargeMapModalProps> = ({ isOpen, onClose })
 
               {mapId === 'jungle-ops' && (
                 <g id="large-jungle-geometry">
-                  <path d="M 15 100 Q 60 90 100 100 T 185 100" stroke="#2a1f16" strokeWidth="18" fill="none" />
-                  <path d="M 100 15 Q 90 60 100 100 T 100 185" stroke="#2a1f16" strokeWidth="18" fill="none" />
-                  <rect x="90" y="90" width="20" height="20" fill="#2d4a34" stroke="#4ade80" strokeWidth="1.4" rx="2" />
-                  <text x="100" y="102" fill="#86efac" fontSize="6" fontFamily="monospace" fontWeight="bold" textAnchor="middle">ANCIENT SHRINE</text>
-                  <circle cx="64" cy="64" r="9" fill="#384937" stroke="#86efac" strokeWidth="1" />
-                  <circle cx="136" cy="136" r="9.5" fill="#384937" stroke="#86efac" strokeWidth="1" />
-                  <rect x="31" y="49" width="18" height="18" fill="#4a3728" stroke="#a16207" strokeWidth="1.2" rx="1.5" />
-                  <text x="40" y="60" fill="#fef08a" fontSize="5.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">WEST TOWER</text>
-                  <rect x="151" y="133" width="18" height="18" fill="#4a3728" stroke="#a16207" strokeWidth="1.2" rx="1.5" />
-                  <text x="160" y="144" fill="#fef08a" fontSize="5.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">EAST TOWER</text>
+                  {/* 1. Natural Winding Creek Ravine Drainage */}
+                  <path d="M 180 38 Q 130 75 100 100 T 20 162" stroke="#0e7490" strokeWidth="11" fill="none" opacity="0.65" />
+                  <path d="M 180 38 Q 130 75 100 100 T 20 162" stroke="#155e75" strokeWidth="5.5" fill="none" opacity="0.8" />
+                  <text x="64" y="118" fill="#38bdf8" fontSize="4.5" fontFamily="monospace" fontWeight="bold">CREEK RAVINE</text>
+
+                  {/* 2. Hierarchical Road Network */}
+                  {/* Primary Arterial Highway (West Logistics -> FOB Sabre -> Valley -> Bridge -> Ban Khao -> NE) */}
+                  <path
+                    d="M 0 40 L 37.5 40 Q 57.5 55 75 72.5 T 100 100 Q 115 117.5 142.5 144 T 172.5 175 L 200 200"
+                    stroke="#78350f"
+                    strokeWidth="7"
+                    fill="none"
+                  />
+                  <path
+                    d="M 0 40 L 37.5 40 Q 57.5 55 75 72.5 T 100 100 Q 115 117.5 142.5 144 T 172.5 175 L 200 200"
+                    stroke="#b45309"
+                    strokeWidth="4.5"
+                    fill="none"
+                    strokeDasharray="4,2"
+                  />
+
+                  {/* Southern Valley Secondary Road (Bridge Junction -> Ban Nam Hamlet -> Farmland -> Ban Khao) */}
+                  <path
+                    d="M 85 82.5 Q 94 70 115 62.5 T 135 57.5 Q 155 55 172.5 45 T 177.5 72.5 Q 162.5 105 142.5 132.5"
+                    stroke="#78350f"
+                    strokeWidth="5"
+                    fill="none"
+                  />
+                  <path
+                    d="M 85 82.5 Q 94 70 115 62.5 T 135 57.5 Q 155 55 172.5 45 T 177.5 72.5 Q 162.5 105 142.5 132.5"
+                    stroke="#b45309"
+                    strokeWidth="3"
+                    fill="none"
+                    strokeDasharray="3,2"
+                  />
+
+                  {/* North Ridge Service Spur (Bridge Exit -> Valley -> Watchtower) */}
+                  <path
+                    d="M 115 117.5 Q 112.5 140 110 160 Q 105 175 100 185"
+                    stroke="#78350f"
+                    strokeWidth="4.5"
+                    fill="none"
+                  />
+                  <path
+                    d="M 115 117.5 Q 112.5 140 110 160 Q 105 175 100 185"
+                    stroke="#b45309"
+                    strokeWidth="2.5"
+                    fill="none"
+                    strokeDasharray="3,2"
+                  />
+
+                  {/* Ban Khao Village Footpaths */}
+                  <path
+                    d="M 130 132.5 L 142.5 137.5 L 150 152.5 L 155 165 L 170 170 L 180 157.5"
+                    stroke="#a16207"
+                    strokeWidth="2.4"
+                    strokeDasharray="2.5,1.5"
+                    fill="none"
+                    opacity="0.85"
+                  />
+
+                  {/* Ban Nam Hamlet Footpaths */}
+                  <path
+                    d="M 135 57.5 L 137.5 62.5 L 145 60 L 160 57.5 L 167.5 55 L 172.5 40 L 172.5 27.5"
+                    stroke="#a16207"
+                    strokeWidth="2.4"
+                    strokeDasharray="2.5,1.5"
+                    fill="none"
+                    opacity="0.85"
+                  />
+
+                  {/* 3. Central Timber Trestle Bridge */}
+                  <g transform="translate(100, 100) rotate(45)">
+                    <rect x="-3.5" y="-6.5" width="7" height="13" fill="#a16207" stroke="#fde047" strokeWidth="0.9" rx="0.5" />
+                    <line x1="-3.5" y1="-3" x2="3.5" y2="-3" stroke="#451a03" strokeWidth="0.7" />
+                    <line x1="-3.5" y1="3" x2="3.5" y2="3" stroke="#451a03" strokeWidth="0.7" />
+                  </g>
+                  <text x="108" y="104" fill="#fef08a" fontSize="4.5" fontFamily="monospace" fontWeight="bold">TIMBER BRIDGE</text>
+
+                  {/* 4. Main Town "Ban Khao" (Northeast: [130..195, 130..195]) */}
+                  <rect x="130" y="130" width="65" height="65" fill="rgba(180, 83, 9, 0.14)" stroke="rgba(245, 158, 11, 0.5)" strokeWidth="1" strokeDasharray="4,2" rx="4" />
+                  <text x="162.5" y="137" fill="#fde047" fontSize="5.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">BAN KHAO TOWN</text>
+                  {/* Town Buildings */}
+                  <rect x="150" y="160" width="10.5" height="9.5" fill="#ca8a04" stroke="#fef08a" strokeWidth="0.8" rx="1" />
+                  <rect x="138" y="134" width="9.5" height="7" fill="#78350f" stroke="#fcd34d" strokeWidth="0.8" rx="1" />
+                  <rect x="170" y="143" width="9" height="8" fill="#b45309" stroke="#fed7aa" strokeWidth="0.8" rx="1" />
+                  <rect x="166" y="173" width="8" height="8" fill="#ca8a04" stroke="#fef08a" strokeWidth="0.8" rx="1" />
+                  <rect x="136" y="168" width="8" height="9" fill="#78350f" stroke="#fcd34d" strokeWidth="0.8" rx="1" />
+                  {/* Town Water Cistern */}
+                  <circle cx="150" cy="157.5" r="2.5" fill="#38bdf8" stroke="#e0f2fe" strokeWidth="0.7" />
+
+                  {/* 5. Riverside Hamlet "Ban Nam" & Farmland (Southeast: [132..190, 16..68]) */}
+                  <rect x="132" y="16" width="58" height="52" fill="rgba(101, 163, 13, 0.12)" stroke="rgba(132, 204, 22, 0.45)" strokeWidth="0.9" strokeDasharray="3,2" rx="3" />
+                  <text x="161" y="24" fill="#bef264" fontSize="4.8" fontFamily="monospace" fontWeight="bold" textAnchor="middle">BAN NAM HAMLET</text>
+                  <rect x="141" y="56" width="8" height="7" fill="#78350f" stroke="#fcd34d" strokeWidth="0.8" rx="1" />
+                  <rect x="163" y="51" width="8" height="7" fill="#b45309" stroke="#fed7aa" strokeWidth="0.8" rx="1" />
+                  <rect x="168" y="24" width="9.5" height="8" fill="#78350f" stroke="#fcd34d" strokeWidth="0.8" rx="1" />
+                  {/* Fishing Pier */}
+                  <rect x="135" y="60" width="3" height="7" fill="#a16207" stroke="#fde047" strokeWidth="0.6" rx="0.5" />
+                  <text x="133" y="71" fill="#fde047" fontSize="3" fontFamily="monospace">DOCK</text>
+
+                  {/* 6. Tactical Military Compound "FOB Sabre" (Southwest: [15..60, 18..62]) */}
+                  <rect x="15" y="18" width="45" height="44" fill="rgba(5, 150, 105, 0.16)" stroke="rgba(16, 185, 129, 0.6)" strokeWidth="1" strokeDasharray="4,2" rx="4" />
+                  <text x="37.5" y="25" fill="#6ee7b7" fontSize="5.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">FOB SABRE</text>
+                  <rect x="29" y="28.5" width="14" height="3.2" fill="#047857" stroke="#34d399" strokeWidth="0.8" rx="0.5" />
+                  <rect x="48" y="21" width="8" height="3.2" fill="#047857" stroke="#34d399" strokeWidth="0.8" rx="0.5" />
+                  <rect x="16" y="44" width="9" height="7" fill="#065f46" stroke="#10b981" strokeWidth="0.8" rx="1" />
+                  {/* Radio Mast */}
+                  <circle cx="21" cy="44" r="2.5" fill="#dc2626" stroke="#fecaca" strokeWidth="0.8" />
+                  <text x="21" y="40" fill="#f87171" fontSize="3.8" fontFamily="monospace" textAnchor="middle">RADIO</text>
+
+                  {/* 7. Tactical Observation Watchtower (North Ridge [100, 185]) */}
+                  <g id="large-tower-north">
+                    <circle cx="100" cy="185" r="5" fill="#a16207" stroke="#fde047" strokeWidth="1.2" />
+                    <text x="100" y="195" fill="#fde047" fontSize="4.8" fontFamily="monospace" fontWeight="bold" textAnchor="middle">NORTH RIDGE TOWER</text>
+                  </g>
+
+                  {/* 8. Ancient Monastery Stone Ruins ([37.5, 160]) */}
+                  <rect x="32" y="154" width="12" height="12" fill="#1e293b" stroke="#38bdf8" strokeWidth="1" rx="1" />
+                  <text x="38" y="162" fill="#93c5fd" fontSize="4.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">RUINS</text>
                 </g>
               )}
 

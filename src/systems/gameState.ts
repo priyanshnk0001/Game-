@@ -19,7 +19,7 @@ import {
   MapId,
 } from '../types/game';
 import { soundManager } from './sound';
-import { MAPS, MAP_OBSTACLES } from '../config/maps';
+import { MAPS, MAP_OBSTACLES, getJungleTerrainHeight, validateJungleRoadClearance } from '../config/maps';
 import { CollisionWorld } from '../game/collision/CollisionWorld';
 
 type Listener = () => void;
@@ -461,8 +461,18 @@ class GameStateManager {
     this.activeMapId = mapId;
     const mapDef = MAPS[mapId];
 
-    // Update physical collision boundaries and obstacles
-    CollisionWorld.setMap(MAP_OBSTACLES[mapId], mapDef.bounds);
+    // Update physical collision boundaries, obstacles, and terrain elevation
+    const terrainFn = mapId === 'jungle-ops' ? getJungleTerrainHeight : null;
+    CollisionWorld.setMap(MAP_OBSTACLES[mapId], mapDef.bounds, terrainFn);
+
+    if (mapId === 'jungle-ops') {
+      const report = validateJungleRoadClearance(MAP_OBSTACLES['jungle-ops']);
+      if (report.violations > 0) {
+        console.warn(`[SECTOR-02 ROAD CLEARANCE] ${report.violations} violations found:`, report.details);
+      } else {
+        console.log(`[SECTOR-02 ROAD CLEARANCE] ROAD CLEARANCE VIOLATIONS: 0. All obstacles and buildings clear.`);
+      }
+    }
 
     // Cancel any active reloads
     Object.keys(this.reloadTimeouts).forEach((k) => {

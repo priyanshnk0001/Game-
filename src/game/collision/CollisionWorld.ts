@@ -33,6 +33,7 @@ export interface VaultTarget {
 export class CollisionWorld {
   // Current active map boundary limits
   public static currentBounds = { ...MAP_BOUNDS };
+  public static terrainHeightFn: ((x: number, z: number) => number) | null = null;
 
   // Master registry of all physical map structures
   public static obstacles: CollisionBox[] = [
@@ -94,7 +95,7 @@ export class CollisionWorld {
     currentFeetY: number,
     footprintRadius = 0.35
   ): number {
-    let highestGround = 0;
+    let highestGround = this.terrainHeightFn ? this.terrainHeightFn(x, z) : 0;
 
     for (const obs of this.obstacles) {
       const topY = obs.position[1] + obs.size[1] / 2;
@@ -479,10 +480,12 @@ export class CollisionWorld {
    */
   public static setMap(
     obstacles: CollisionBox[],
-    bounds: { minX: number; maxX: number; minZ: number; maxZ: number } = MAP_BOUNDS
+    bounds: { minX: number; maxX: number; minZ: number; maxZ: number } = MAP_BOUNDS,
+    terrainHeightFn: ((x: number, z: number) => number) | null = null
   ) {
     this.obstacles = obstacles;
     this.currentBounds = { ...bounds };
+    this.terrainHeightFn = terrainHeightFn;
   }
 
   /**
@@ -635,9 +638,10 @@ export class CollisionWorld {
       }
     }
 
-    // Check ground plane intersection (y = 0)
-    if (direction.y < -0.0001 && origin.y > 0) {
-      const tGround = -origin.y / direction.y;
+    // Check ground plane intersection
+    const baseGroundY = this.terrainHeightFn ? this.terrainHeightFn(origin.x, origin.z) : 0;
+    if (direction.y < -0.0001 && origin.y > baseGroundY) {
+      const tGround = (baseGroundY - origin.y) / direction.y;
       if (tGround > 0 && tGround < closestDist) {
         closestDist = tGround;
         finalHitPoint.copy(origin).addScaledVector(direction, tGround);
