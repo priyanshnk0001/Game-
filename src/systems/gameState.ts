@@ -26,7 +26,7 @@ import { SECTOR02_CONFIG } from '../game/environment/JungleMap';
 type Listener = () => void;
 
 class GameStateManager {
-  public activeMapId: MapId = 'battle-area';
+  public activeMapId: MapId = 'jungle-ops';
 
   public players: Record<PlayerId, PlayerState> = {
     player1: {
@@ -148,6 +148,10 @@ class GameStateManager {
     player1: null,
     player2: null,
   };
+
+  constructor() {
+    this.switchMap('jungle-ops');
+  }
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -554,7 +558,7 @@ class GameStateManager {
       }
     });
 
-    const mapDef = MAPS[this.activeMapId] || MAPS['battle-area'];
+    const mapDef = MAPS[this.activeMapId] || MAPS['jungle-ops'];
     const p1Spawn = mapDef.playerSpawns.player1;
     const p2Spawn = mapDef.playerSpawns.player2;
     const p1Rot = mapDef.playerSpawnRotations?.player1 ?? 0;

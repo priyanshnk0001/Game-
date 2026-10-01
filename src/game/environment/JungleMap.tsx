@@ -2551,18 +2551,17 @@ export const JungleMap: React.FC = () => {
     return geom;
   }, []);
 
-  // Road Spline Geometries — temporarily disabled while road system is removed
-  // JUNGLE_ROAD_NETWORKS data is preserved in maps.ts for future rebuild
-  // const mainRoadGeom = useMemo(() => createSplineRoadGeometry(JUNGLE_ROAD_NETWORKS[0]), []);
-  // const southLoopGeom = useMemo(() => createSplineRoadGeometry(JUNGLE_ROAD_NETWORKS[1]), []);
-  // const northRidgeGeom = useMemo(() => createSplineRoadGeometry(JUNGLE_ROAD_NETWORKS[2]), []);
-  // const banKhaoPathsGeom = useMemo(() => createSplineRoadGeometry(JUNGLE_ROAD_NETWORKS[3]), []);
-  // const banNamPathsGeom = useMemo(() => createSplineRoadGeometry(JUNGLE_ROAD_NETWORKS[4]), []);
+  // Road Spline Geometries
+  const mainRoadGeom = useMemo(() => createSplineRoadGeometry(JUNGLE_ROAD_NETWORKS[0]), []);
+  const southLoopGeom = useMemo(() => createSplineRoadGeometry(JUNGLE_ROAD_NETWORKS[1]), []);
+  const northRidgeGeom = useMemo(() => createSplineRoadGeometry(JUNGLE_ROAD_NETWORKS[2]), []);
+  const banKhaoPathsGeom = useMemo(() => createSplineRoadGeometry(JUNGLE_ROAD_NETWORKS[3]), []);
+  const banNamPathsGeom = useMemo(() => createSplineRoadGeometry(JUNGLE_ROAD_NETWORKS[4]), []);
 
-  // Intersection Junction Aprons — temporarily disabled
-  // const westJunctionGeom = useMemo(() => createRoadJunctionGeometry(-12, -14, 6.8), []);
-  // const eastJunctionGeom = useMemo(() => createRoadJunctionGeometry(12, 14, 6.8), []);
-  // const northRidgeJunctionGeom = useMemo(() => createRoadJunctionGeometry(34, 35, 5.5), []);
+  // Intersection Junction Aprons
+  const westJunctionGeom = useMemo(() => createRoadJunctionGeometry(-12, -14, 6.8), []);
+  const eastJunctionGeom = useMemo(() => createRoadJunctionGeometry(12, 14, 6.8), []);
+  const northRidgeJunctionGeom = useMemo(() => createRoadJunctionGeometry(34, 35, 5.5), []);
 
   // Encircling Mountain Ridge Horizon Rim
   const horizonMountainGeometry = useMemo(() => {

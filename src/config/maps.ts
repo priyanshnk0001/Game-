@@ -680,3 +680,15 @@ export function getTreePlacementY(treeX: number, treeZ: number, baseRadius = 2.0
   return centerH - slopeDrop * 0.5;
 }
 
+// River System Constants (Sector-02 Ravine Creek)
+export const RIVER_SPINE: [number, number][] = [
+  [-60, 60],
+  [-30, 30],
+  [0, 0],
+  [30, -30],
+  [60, -60],
+];
+export const RIVER_WATER_Y = -1.35;
+export const RIVER_HALF_WIDTH = 7.0;
+export const RIVER_MAX_DEPTH = 2.5;
+
