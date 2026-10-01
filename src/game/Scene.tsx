@@ -81,11 +81,13 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
       {activeMapId === 'jungle-ops' && <JungleMap />}
       {activeMapId === 'snow-ops' && <SnowMap />}
 
-      {/* 4. Realistic Ground Weapons resting on gear crates */}
-      <Suspense fallback={null}>
-        <RealisticWeaponPickup item={state.groundWeapons.gun1} />
-        <RealisticWeaponPickup item={state.groundWeapons.gun2} />
-      </Suspense>
+      {/* 4. Realistic Ground Weapons resting on gear crates (Hidden in Sector-02 cleanup) */}
+      {activeMapId !== 'jungle-ops' && (
+        <Suspense fallback={null}>
+          <RealisticWeaponPickup item={state.groundWeapons.gun1} />
+          <RealisticWeaponPickup item={state.groundWeapons.gun2} />
+        </Suspense>
+      )}
 
       {/* 5. Realistic Rigged Vanguard Tactical Soldiers */}
       <Suspense fallback={null}>

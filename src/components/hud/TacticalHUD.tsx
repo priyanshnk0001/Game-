@@ -80,14 +80,14 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
   const stanceLabel = activePlayer.isMantling
     ? 'MANTLE'
     : activePlayer.isVaulting
-    ? 'VAULT'
-    : activePlayer.isProne
-    ? 'PRONE'
-    : activePlayer.isCrouching
-    ? 'CROUCH'
-    : activePlayer.isSprinting
-    ? 'SPRINT'
-    : 'STAND';
+      ? 'VAULT'
+      : activePlayer.isProne
+        ? 'PRONE'
+        : activePlayer.isCrouching
+          ? 'CROUCH'
+          : activePlayer.isSprinting
+            ? 'SPRINT'
+            : 'STAND';
 
   const isTabScoreboard = inputManager.state.scoreboard;
 
@@ -228,15 +228,14 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
                 {activePlayer.name}
               </span>
               <span
-                className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${
-                  activePlayer.isVaulting || activePlayer.isMantling
+                className={`px-1.5 py-0.5 rounded text-[9px] font-bold font-mono border ${activePlayer.isVaulting || activePlayer.isMantling
                     ? 'bg-amber-950/70 border-amber-500/50 text-amber-300 animate-pulse'
                     : activePlayer.isProne
-                    ? 'bg-indigo-950/70 border-indigo-500/50 text-indigo-300'
-                    : activePlayer.isCrouching
-                    ? 'bg-sky-950/70 border-sky-500/50 text-sky-300'
-                    : 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
-                }`}
+                      ? 'bg-indigo-950/70 border-indigo-500/50 text-indigo-300'
+                      : activePlayer.isCrouching
+                        ? 'bg-sky-950/70 border-sky-500/50 text-sky-300'
+                        : 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
+                  }`}
               >
                 {stanceLabel}
               </span>
@@ -305,9 +304,8 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
                     ) : (
                       <>
                         <span
-                          className={`font-black ${
-                            activePlayer.magazine <= 5 ? 'text-red-400' : 'text-emerald-400'
-                          }`}
+                          className={`font-black ${activePlayer.magazine <= 5 ? 'text-red-400' : 'text-emerald-400'
+                            }`}
                         >
                           {activePlayer.magazine}
                         </span>
@@ -332,8 +330,8 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
                     activePlayer.activeSlot === 1
                       ? 'text-cyan-400 font-bold'
                       : activePlayer.inventory.slot1
-                      ? 'text-slate-400'
-                      : 'text-slate-700'
+                        ? 'text-slate-400'
+                        : 'text-slate-700'
                   }
                 >
                   [1] {activePlayer.inventory.slot1 ? 'PRIMARY' : 'EMPTY'}
@@ -343,8 +341,8 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
                     activePlayer.activeSlot === 2
                       ? 'text-cyan-400 font-bold'
                       : activePlayer.inventory.slot2
-                      ? 'text-slate-400'
-                      : 'text-slate-700'
+                        ? 'text-slate-400'
+                        : 'text-slate-700'
                   }
                 >
                   [2] {activePlayer.inventory.slot2 ? 'SECONDARY' : 'EMPTY'}

@@ -202,8 +202,8 @@ export const Minimap: React.FC<MinimapProps> = ({ onOpenLargeMap, onOpenMapSelec
               mapId === 'jungle-ops'
                 ? '#121e14'
                 : mapId === 'snow-ops'
-                ? '#cbd5e1'
-                : '#0b101b'
+                  ? '#cbd5e1'
+                  : '#0b101b'
             }
           />
 
@@ -302,71 +302,8 @@ export const Minimap: React.FC<MinimapProps> = ({ onOpenLargeMap, onOpenMapSelec
               <path d="M 180 38 Q 130 75 100 100 T 20 162" stroke="#0e7490" strokeWidth="11" fill="none" opacity="0.65" />
               <path d="M 180 38 Q 130 75 100 100 T 20 162" stroke="#155e75" strokeWidth="5.5" fill="none" opacity="0.8" />
 
-              {/* 2. Hierarchical Road Network */}
-              {/* Primary Arterial Highway (West Logistics -> FOB Sabre -> Valley -> Bridge -> Ban Khao -> NE) */}
-              <path
-                d="M 0 40 L 37.5 40 Q 57.5 55 75 72.5 T 100 100 Q 115 117.5 142.5 144 T 172.5 175 L 200 200"
-                stroke="#78350f"
-                strokeWidth="7"
-                fill="none"
-              />
-              <path
-                d="M 0 40 L 37.5 40 Q 57.5 55 75 72.5 T 100 100 Q 115 117.5 142.5 144 T 172.5 175 L 200 200"
-                stroke="#b45309"
-                strokeWidth="4.5"
-                fill="none"
-                strokeDasharray="4,2"
-              />
-
-              {/* Southern Valley Secondary Road (Bridge Junction -> Ban Nam Hamlet -> Farmland -> Ban Khao) */}
-              <path
-                d="M 85 82.5 Q 94 70 115 62.5 T 135 57.5 Q 155 55 172.5 45 T 177.5 72.5 Q 162.5 105 142.5 132.5"
-                stroke="#78350f"
-                strokeWidth="5"
-                fill="none"
-              />
-              <path
-                d="M 85 82.5 Q 94 70 115 62.5 T 135 57.5 Q 155 55 172.5 45 T 177.5 72.5 Q 162.5 105 142.5 132.5"
-                stroke="#b45309"
-                strokeWidth="3"
-                fill="none"
-                strokeDasharray="3,2"
-              />
-
-              {/* North Ridge Service Spur (Bridge Exit -> Valley -> Watchtower) */}
-              <path
-                d="M 115 117.5 Q 112.5 140 110 160 Q 105 175 100 185"
-                stroke="#78350f"
-                strokeWidth="4.5"
-                fill="none"
-              />
-              <path
-                d="M 115 117.5 Q 112.5 140 110 160 Q 105 175 100 185"
-                stroke="#b45309"
-                strokeWidth="2.5"
-                fill="none"
-                strokeDasharray="3,2"
-              />
-
-              {/* Ban Khao Village Footpaths */}
-              <path
-                d="M 130 132.5 L 142.5 137.5 L 150 152.5 L 155 165 L 170 170 L 180 157.5"
-                stroke="#a16207"
-                strokeWidth="2.2"
-                strokeDasharray="2,1.5"
-                fill="none"
-                opacity="0.85"
-              />
-
-              {/* Ban Nam Hamlet Footpaths */}
-              <path
-                d="M 135 57.5 L 137.5 62.5 L 145 60 L 160 57.5 L 167.5 55 L 172.5 40 L 172.5 27.5"
-                stroke="#a16207"
-                strokeWidth="2.2"
-                strokeDasharray="2,1.5"
-                fill="none"
-                opacity="0.85"
-              />
+              {/* 2. Road network temporarily removed — to be rebuilt from scratch */}
+              {/* Roads disabled: Primary Highway, Southern Valley Road, North Ridge Spur, Village Footpaths */}
 
               {/* 3. Central Timber Trestle Bridge (Spans ravine at 45-deg collinear with road) */}
               <g transform="translate(100, 100) rotate(45)">

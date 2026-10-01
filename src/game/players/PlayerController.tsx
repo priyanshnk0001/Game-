@@ -668,10 +668,10 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const headY = player.isDead
       ? 0.35
       : isProne
-      ? 0.45
-      : isCrouching
-      ? 0.95
-      : 1.45;
+        ? 0.45
+        : isCrouching
+          ? 0.95
+          : 1.45;
 
     const targetHead = new THREE.Vector3(
       player.position[0],

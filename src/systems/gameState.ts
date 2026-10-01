@@ -21,6 +21,7 @@ import {
 import { soundManager } from './sound';
 import { MAPS, MAP_OBSTACLES, getJungleTerrainHeight, validateJungleRoadClearance } from '../config/maps';
 import { CollisionWorld } from '../game/collision/CollisionWorld';
+import { SECTOR02_CONFIG } from '../game/environment/JungleMap';
 
 type Listener = () => void;
 
@@ -61,6 +62,8 @@ class GameStateManager {
       vaultProgress: 0,
       mantleProgress: 0,
       isGrounded: true,
+      waterState: 'land' as const,
+      swimDepth: 0,
       color: '#06b6d4',
       accentColor: '#67e8f9',
     },
@@ -97,6 +100,8 @@ class GameStateManager {
       vaultProgress: 0,
       mantleProgress: 0,
       isGrounded: true,
+      waterState: 'land' as const,
+      swimDepth: 0,
       color: '#f43f5e',
       accentColor: '#fda4af',
     },
@@ -463,7 +468,23 @@ class GameStateManager {
 
     // Update physical collision boundaries, obstacles, and terrain elevation
     const terrainFn = mapId === 'jungle-ops' ? getJungleTerrainHeight : null;
-    CollisionWorld.setMap(MAP_OBSTACLES[mapId], mapDef.bounds, terrainFn);
+    let obstacles = MAP_OBSTACLES[mapId];
+
+    if (mapId === 'jungle-ops') {
+      // In Sector-02 clean environment mode, filter obstacles to match visible environment:
+      // When structures/props are hidden, do NOT leave invisible collision boxes in the world.
+      // Legitimate physical barriers (perimeter boundaries, off-road trees, etc.) remain fully functional.
+      obstacles = obstacles.filter((obs) => {
+        if (obs.id.startsWith('jungle_perim_')) return true;
+        if (obs.type === 'building' || obs.type === 'container' || obs.type === 'wall' || obs.type === 'barrier') return SECTOR02_CONFIG.ENABLE_STRUCTURES;
+        if (obs.type === 'bunker' || obs.type === 'crate' || obs.type === 'pillar') return SECTOR02_CONFIG.ENABLE_PROPS;
+        if (obs.type === 'rock' || obs.id.startsWith('log_')) return SECTOR02_CONFIG.ENABLE_ROCKS_AND_LOGS;
+        if (obs.id.startsWith('bridge_')) return SECTOR02_CONFIG.ENABLE_WATER_AND_BRIDGE;
+        return true;
+      });
+    }
+
+    CollisionWorld.setMap(obstacles, mapDef.bounds, terrainFn);
 
     if (mapId === 'jungle-ops') {
       const report = validateJungleRoadClearance(MAP_OBSTACLES['jungle-ops']);
@@ -566,6 +587,8 @@ class GameStateManager {
       vaultProgress: 0,
       mantleProgress: 0,
       isGrounded: true,
+      waterState: 'land' as const,
+      swimDepth: 0,
       color: '#06b6d4',
       accentColor: '#67e8f9',
     };
@@ -597,6 +620,8 @@ class GameStateManager {
       vaultProgress: 0,
       mantleProgress: 0,
       isGrounded: true,
+      waterState: 'land' as const,
+      swimDepth: 0,
       color: '#f43f5e',
       accentColor: '#fda4af',
     };

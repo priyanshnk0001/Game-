@@ -59,45 +59,44 @@ export const JUNGLE_OPS_OBSTACLES: CollisionBox[] = [
   { id: 'jungle_perim_w', position: [-80, 4.0, 0], size: [2.0, 8.0, 160], rotationY: 0, type: 'wall' },
   { id: 'jungle_perim_e', position: [80, 4.0, 0], size: [2.0, 8.0, 160], rotationY: 0, type: 'wall' },
 
-  // 2. Southwest Tactical Compound: "FOB Sabre" (South of Main Road)
-  { id: 'fob_hq_container', position: [-52, 1.3, -56], size: [12.0, 2.6, 2.5], rotationY: 0.15, type: 'container' },
+  // 2. Southwest Tactical Compound: "FOB Sabre" (South of Main Road corridor, 0 road violations)
+  { id: 'fob_hq_container', position: [-52, 1.3, -60], size: [12.0, 2.6, 2.5], rotationY: 0.15, type: 'container' },
   { id: 'fob_armory_container', position: [-38, 1.3, -62], size: [6.5, 2.6, 2.5], rotationY: -0.2, type: 'container' },
-  { id: 'fob_command_shelter', position: [-68, 1.8, -40], size: [8.0, 3.6, 6.0], rotationY: 0.4, type: 'building' },
-  { id: 'fob_sandbag_front', position: [-46, 0.6, -50], size: [8.0, 1.2, 0.9], rotationY: 0.15, type: 'bunker' },
+  { id: 'fob_command_shelter', position: [-68, 1.8, -34], size: [8.0, 3.6, 6.0], rotationY: 0.4, type: 'building' },
+  { id: 'fob_sandbag_front', position: [-46, 0.6, -58], size: [8.0, 1.2, 0.9], rotationY: 0.15, type: 'bunker' },
   { id: 'fob_sandbag_east', position: [-26, 0.6, -48], size: [8.0, 1.2, 0.9], rotationY: -0.2, type: 'bunker' },
-  { id: 'fob_sandbag_flank', position: [-68, 0.6, -58], size: [0.9, 1.2, 12.0], rotationY: 0, type: 'bunker' },
-  { id: 'fob_ammo_pallet_1', position: [-54, 0.7, -52], size: [2.8, 1.4, 2.4], rotationY: 0.1, type: 'crate' },
+  { id: 'fob_sandbag_flank', position: [-68, 0.6, -62], size: [0.9, 1.2, 12.0], rotationY: 0, type: 'bunker' },
+  { id: 'fob_ammo_pallet_1', position: [-54, 0.7, -56], size: [2.8, 1.4, 2.4], rotationY: 0.1, type: 'crate' },
   { id: 'fob_ammo_pallet_2', position: [-38, 0.7, -56], size: [2.4, 1.4, 2.2], rotationY: -0.3, type: 'crate' },
   { id: 'fob_fuel_depot', position: [-60, 0.6, -64], size: [3.5, 1.2, 2.5], rotationY: 0, type: 'container' },
-  { id: 'fob_radio_mast', position: [-68, 5.0, -48], size: [0.6, 10.0, 0.6], rotationY: 0, type: 'pillar' },
+  { id: 'fob_radio_mast', position: [-68, 5.0, -56], size: [0.6, 10.0, 0.6], rotationY: 0, type: 'pillar' },
   { id: 'tower_fob_sentry', position: [-22, 3.0, -42], size: [4.2, 6.0, 4.2], rotationY: 0.3, type: 'building' },
 
-  // 3. Central Creek Ravine & Timber Trestle Bridge (Spans ravine along 45-deg road axis)
-  { id: 'bridge_deck', position: [0, 0.3, 0], size: [6.5, 0.6, 12.0], rotationY: Math.PI / 4, type: 'barrier' },
-  { id: 'bridge_rail_left', position: [-2.6, 1.0, 0], size: [0.3, 0.9, 12.0], rotationY: Math.PI / 4, type: 'barrier' },
-  { id: 'bridge_rail_right', position: [2.6, 1.0, 0], size: [0.3, 0.9, 12.0], rotationY: Math.PI / 4, type: 'barrier' },
+  // 3. Central Creek Ravine & Timber Trestle Bridge (Railings flank outer edges of 6.5m walkable corridor; deck is walkable terrain)
+  { id: 'bridge_rail_left', position: [-3.8, 1.0, -0.6], size: [0.3, 0.9, 12.0], rotationY: Math.PI / 4, type: 'barrier' },
+  { id: 'bridge_rail_right', position: [3.8, 1.0, 0.6], size: [0.3, 0.9, 12.0], rotationY: Math.PI / 4, type: 'barrier' },
 
-  // 4. Northeast Main Town: "Ban Khao" (Plateau at +2.8m, buildings arranged along streets)
-  { id: 'village_chief_house', position: [44, 2.8, 52], size: [8.5, 5.0, 7.5], rotationY: 0.15, type: 'building' },
+  // 4. Northeast Main Town: "Ban Khao" (Generous road clearance for village paths)
+  { id: 'village_chief_house', position: [44, 2.8, 64], size: [8.5, 5.0, 7.5], rotationY: 0.15, type: 'building' },
   { id: 'village_stilt_1', position: [60, 2.8, 38], size: [7.5, 4.0, 6.5], rotationY: -0.25, type: 'building' },
-  { id: 'village_market_shed', position: [42, 2.8, 22], size: [9.5, 3.6, 6.5], rotationY: 0.35, type: 'building' },
-  { id: 'village_stilt_2', position: [66, 2.8, 60], size: [7.0, 4.4, 7.0], rotationY: 0.08, type: 'building' },
+  { id: 'village_market_shed', position: [56, 2.8, 16], size: [9.5, 3.6, 6.5], rotationY: 0.35, type: 'building' },
+  { id: 'village_stilt_2', position: [80, 2.8, 56], size: [7.0, 4.4, 7.0], rotationY: 0.08, type: 'building' },
   { id: 'village_workshop_barn', position: [26, 2.8, 62], size: [8.0, 4.4, 9.0], rotationY: -0.18, type: 'building' },
   { id: 'village_storage_shed', position: [50, 2.8, 74], size: [5.5, 3.0, 4.5], rotationY: 0.32, type: 'building' },
-  { id: 'village_wall_plaza', position: [38, 1.4, 44], size: [8.0, 1.2, 0.4], rotationY: 0.1, type: 'wall' },
-  { id: 'village_wall_east', position: [54, 1.4, 46], size: [0.4, 1.2, 10.0], rotationY: -0.1, type: 'wall' },
+  { id: 'village_wall_plaza', position: [28, 1.4, 44], size: [6.0, 1.2, 0.4], rotationY: 0.1, type: 'wall' },
+  { id: 'village_wall_east', position: [48, 1.4, 36], size: [0.4, 1.2, 8.0], rotationY: -0.1, type: 'wall' },
   { id: 'village_fence_north', position: [52, 1.4, 68], size: [9.0, 1.0, 0.3], rotationY: 0.2, type: 'barrier' },
   { id: 'village_cistern_tank', position: [30, 3.5, 42], size: [2.5, 5.0, 2.5], rotationY: 0, type: 'pillar' },
 
-  // 5. Southeast Riverside Hamlet: "Ban Nam" & Farmland Terraces (+1.6m)
-  { id: 'bannam_cottage_1', position: [36, 1.8, -32], size: [7.0, 3.8, 6.0], rotationY: 0.2, type: 'building' },
-  { id: 'bannam_cottage_2', position: [54, 1.8, -36], size: [6.5, 3.6, 6.0], rotationY: -0.15, type: 'building' },
-  { id: 'bannam_farm_barn', position: [58, 1.8, -58], size: [8.0, 4.2, 7.0], rotationY: -0.3, type: 'building' },
-  { id: 'bannam_fence_terrace', position: [42, 0.6, -42], size: [14.0, 1.0, 0.3], rotationY: 0.1, type: 'barrier' },
+  // 5. Southeast Riverside Hamlet: "Ban Nam" & Farmland Terraces
+  { id: 'bannam_cottage_1', position: [36, 1.8, -24], size: [7.0, 3.8, 6.0], rotationY: 0.2, type: 'building' },
+  { id: 'bannam_cottage_2', position: [48, 1.8, -21], size: [6.5, 3.6, 6.0], rotationY: -0.15, type: 'building' },
+  { id: 'bannam_farm_barn', position: [68, 1.8, -58], size: [8.0, 4.2, 7.0], rotationY: -0.3, type: 'building' },
+  { id: 'bannam_fence_terrace', position: [42, 0.6, -68], size: [14.0, 1.0, 0.3], rotationY: 0.1, type: 'barrier' },
   { id: 'bannam_hay_stack', position: [50, 1.0, -64], size: [3.2, 1.8, 2.8], rotationY: 0.4, type: 'barrier' },
 
   // 6. Northwest Highland Ridge & Ancient Monastery Ruins
-  { id: 'tower_north_ridge', position: [0, 7.2, 68], size: [4.5, 7.5, 4.5], rotationY: 0.1, type: 'building' },
+  { id: 'tower_north_ridge', position: [0, 7.2, 76], size: [4.5, 7.5, 4.5], rotationY: 0.1, type: 'building' },
   { id: 'monastery_ruin_shrine', position: [-50, 3.0, 48], size: [6.5, 2.6, 6.5], rotationY: 0.2, type: 'building' },
   { id: 'monastery_pillar_1', position: [-53, 4.0, 45], size: [1.1, 5.0, 1.1], rotationY: 0, type: 'pillar' },
   { id: 'monastery_pillar_2', position: [-47, 4.0, 51], size: [1.1, 5.0, 1.1], rotationY: 0, type: 'pillar' },
@@ -442,10 +441,55 @@ export const JUNGLE_ROAD_NETWORKS: JungleRoadDef[] = [
   },
 ];
 
+// Helper: Catmull-Rom 2D curve sampling for exact road polyline conformance
+function sampleRoadCatmullRom(points: [number, number][], samplesPerSeg = 20): [number, number][] {
+  const result: [number, number][] = [];
+  const n = points.length;
+  if (n < 2) return points;
+
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(n - 1, i + 2)];
+
+    for (let s = 0; s < samplesPerSeg; s++) {
+      const t = s / samplesPerSeg;
+      const t2 = t * t;
+      const t3 = t2 * t;
+
+      const x =
+        0.5 *
+        (2 * p1[0] +
+          (-p0[0] + p2[0]) * t +
+          (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+          (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3);
+      const z =
+        0.5 *
+        (2 * p1[1] +
+          (-p0[1] + p2[1]) * t +
+          (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+          (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3);
+      result.push([x, z]);
+    }
+  }
+  result.push(points[n - 1]);
+  return result;
+}
+
+// Pre-computed dense polylines for all road networks (conforms directly to 3D road spline meshes)
+export const DENSE_ROAD_POLYLINES = JUNGLE_ROAD_NETWORKS.map((road) => ({
+  id: road.id,
+  name: road.name,
+  width: road.width,
+  corridorHalf: road.width * 0.5 + (road.width > 5.0 ? 1.25 : 0.85),
+  curve: sampleRoadCatmullRom(road.points, 20),
+}));
+
 export function getDistanceToRoads(x: number, z: number): number {
   let minDist = Infinity;
-  for (const road of JUNGLE_ROAD_NETWORKS) {
-    const pts = road.points;
+  for (const road of DENSE_ROAD_POLYLINES) {
+    const pts = road.curve;
     for (let i = 0; i < pts.length - 1; i++) {
       const x1 = pts[i][0];
       const z1 = pts[i][1];
@@ -476,6 +520,7 @@ export interface RoadClearanceResult {
   minDistance: number;
   requiredClearance: number;
   violatingRoad?: string;
+  closestRoadPoint?: [number, number];
 }
 
 export function checkRoadClearance(
@@ -488,14 +533,13 @@ export function checkRoadClearance(
   let requiredClearance = 0;
   let isClear = true;
   let violatingRoad: string | undefined;
+  let closestRoadPoint: [number, number] | undefined;
 
-  for (const road of JUNGLE_ROAD_NETWORKS) {
-    const halfW = road.width * 0.5;
-    const shoulderExtra = road.width > 5.0 ? 1.25 : 0.85;
-    const totalRoadCorridorHalf = halfW + shoulderExtra;
+  for (const road of DENSE_ROAD_POLYLINES) {
+    const totalRoadCorridorHalf = road.corridorHalf;
     const requiredForThisRoad = totalRoadCorridorHalf + objectRadiusOrFootprint + safetyMargin;
 
-    const pts = road.points;
+    const pts = road.curve;
     for (let i = 0; i < pts.length - 1; i++) {
       const x1 = pts[i][0];
       const z1 = pts[i][1];
@@ -515,6 +559,7 @@ export function checkRoadClearance(
       const dist = Math.hypot(x - projX, z - projZ);
       if (dist < minDistance) {
         minDistance = dist;
+        closestRoadPoint = [projX, projZ];
       }
       if (dist < requiredForThisRoad) {
         isClear = false;
@@ -524,7 +569,7 @@ export function checkRoadClearance(
     }
   }
 
-  return { isClear, minDistance, requiredClearance, violatingRoad };
+  return { isClear, minDistance, requiredClearance, violatingRoad, closestRoadPoint };
 }
 
 export function validateJungleRoadClearance(obstacles: CollisionBox[]): { violations: number; details: string[] } {
@@ -535,14 +580,35 @@ export function validateJungleRoadClearance(obstacles: CollisionBox[]): { violat
     // Skip bridge components (they are intentional crossing structures) and perimeter walls
     if (obs.id.startsWith('bridge_') || obs.id.startsWith('jungle_perim_')) continue;
 
-    // Footprint horizontal radius from bounding box size [width, height, depth]
+    // Check center footprint
     const footprintRadius = Math.hypot(obs.size[0] * 0.5, obs.size[2] * 0.5);
-    const result = checkRoadClearance(obs.position[0], obs.position[2], footprintRadius, 0.4);
+    const centerResult = checkRoadClearance(obs.position[0], obs.position[2], footprintRadius, 0.4);
 
-    if (!result.isClear) {
+    // Also check all 4 corners of oriented bounding box for elongated barriers/fences/walls
+    const cos = Math.cos(obs.rotationY || 0);
+    const sin = Math.sin(obs.rotationY || 0);
+    const hx = obs.size[0] * 0.5;
+    const hz = obs.size[2] * 0.5;
+    const corners = [
+      [-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]
+    ].map(([cx, cz]) => [
+      obs.position[0] + (cx * cos - cz * sin),
+      obs.position[2] + (cx * sin + cz * cos)
+    ]);
+
+    let worstResult = centerResult;
+    for (const [cx, cz] of corners) {
+      const cornerRes = checkRoadClearance(cx, cz, 0.2, 0.4);
+      if (!cornerRes.isClear) {
+        worstResult = cornerRes;
+        break;
+      }
+    }
+
+    if (!worstResult.isClear) {
       violations++;
       details.push(
-        `Obstacle "${obs.id}" at [${obs.position[0]}, ${obs.position[2]}] (radius ${footprintRadius.toFixed(1)}m) violates road "${result.violatingRoad}" (dist: ${result.minDistance.toFixed(2)}m < req: ${result.requiredClearance.toFixed(2)}m)`
+        `Obstacle "${obs.id}" at [${obs.position[0]}, ${obs.position[2]}] (radius ${footprintRadius.toFixed(1)}m) violates road "${worstResult.violatingRoad}" (dist: ${worstResult.minDistance.toFixed(2)}m < req: ${worstResult.requiredClearance.toFixed(2)}m)`
       );
     }
   }
@@ -596,5 +662,21 @@ export function getJungleTerrainHeight(x: number, z: number): number {
 
   const total = ridgeHeight + villageHeight + farmHeight + ruinsHeight + fobPlatform + streamDip + groundRoll;
   return Math.max(-2.2, total);
+}
+
+/**
+ * Accurately determines tree base Y coordinate by evaluating terrain slope drop across the tree base flare.
+ * Ensures the lowest point of the tree root flare firmly enters the terrain with zero visible air gaps.
+ */
+export function getTreePlacementY(treeX: number, treeZ: number, baseRadius = 2.0): number {
+  const centerH = getJungleTerrainHeight(treeX, treeZ);
+  let minH = centerH;
+  for (let a = 0; a < 8; a++) {
+    const ang = (a / 8) * Math.PI * 2;
+    const h = getJungleTerrainHeight(treeX + Math.cos(ang) * baseRadius, treeZ + Math.sin(ang) * baseRadius);
+    if (h < minH) minH = h;
+  }
+  const slopeDrop = centerH - minH;
+  return centerH - slopeDrop * 0.5;
 }
 
