@@ -664,8 +664,8 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     <>
       {/* 3D Root Group physically positioned and rotated every frame */}
       <group ref={rootGroupRef}>
-        {/* Character mesh assembly calibrated with 180 deg conversion for gameplay forward facing */}
-        <group ref={characterGroupRef} rotation={[0, Math.PI, 0]}>
+        {/* Character mesh assembly oriented along native forward facing axis */}
+        <group ref={characterGroupRef} rotation={[0, 0, 0]}>
           <primitive
             object={cloned}
             scale={[1.0, 1.0, 1.0]}
