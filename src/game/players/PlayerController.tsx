@@ -631,31 +631,42 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       perspectiveCam.updateProjectionMatrix();
     }
 
-    // Camera offsets by stance
-    let camDist = 3.2;
-    let camHeight = 1.8;
-    let shoulderOffset = 0.55;
+    // Camera offsets and pivot height by stance
+    let camDist = 2.8;
+    let targetPivotY = 1.40;
+    let camElevation = 0.32;
+    let shoulderOffset = 0.48;
 
-    if (isAiming) {
-      camDist = 1.8;
-      camHeight = isProne ? 0.65 : isCrouching ? 1.25 : 1.55;
-      shoulderOffset = isProne ? 0.35 : 0.65;
-    } else if (isProne) {
-      camDist = 2.4;
-      camHeight = 0.65;
-      shoulderOffset = 0.38;
-    } else if (isCrouching) {
-      camDist = 2.6;
-      camHeight = 1.15;
-      shoulderOffset = 0.5;
-    } else if (isVaulting || isMantling) {
+    if (player.isDead) {
       camDist = 3.2;
-      camHeight = isMantling ? 2.1 : 1.75;
+      targetPivotY = 0.40;
+      camElevation = 0.60;
+      shoulderOffset = 0.35;
+    } else if (isAiming) {
+      camDist = 1.5;
+      targetPivotY = isProne ? 0.45 : isCrouching ? 0.95 : 1.40;
+      camElevation = isProne ? 0.18 : 0.22;
+      shoulderOffset = isProne ? 0.35 : 0.52;
+    } else if (isProne) {
+      camDist = 2.2;
+      targetPivotY = 0.45;
+      camElevation = 0.28;
+      shoulderOffset = 0.36;
+    } else if (isCrouching) {
+      camDist = 2.5;
+      targetPivotY = 1.00;
+      camElevation = 0.30;
+      shoulderOffset = 0.46;
+    } else if (isVaulting || isMantling) {
+      camDist = 2.9;
+      targetPivotY = isMantling ? 1.60 : 1.35;
+      camElevation = 0.30;
       shoulderOffset = 0.45;
     } else if (isSprinting) {
-      camDist = 3.6;
-      camHeight = 1.85;
-      shoulderOffset = 0.5;
+      camDist = 3.2;
+      targetPivotY = 1.35;
+      camElevation = 0.32;
+      shoulderOffset = 0.45;
     }
 
     // Subtle head bobbing & landing impact
@@ -665,17 +676,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const yaw = yawRef.current + recoilYawRef.current;
     const totalPitch = pitchRef.current + recoilPitchRef.current;
 
-    const headY = player.isDead
-      ? 0.35
-      : isProne
-        ? 0.45
-        : isCrouching
-          ? 0.95
-          : 1.45;
-
-    const targetHead = new THREE.Vector3(
+    const targetPivot = new THREE.Vector3(
       player.position[0],
-      player.position[1] + headY + bobOffset - landingDipRef.current,
+      player.position[1] + targetPivotY + bobOffset - landingDipRef.current,
       player.position[2]
     );
 
@@ -684,50 +687,64 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const sinY = Math.sin(yaw);
     const cosY = Math.cos(yaw);
 
+    // Forward aim direction unit vector
+    const forwardDir = new THREE.Vector3(
+      sinY * cosPitch,
+      -sinPitch,
+      cosY * cosPitch
+    );
+
+    // Right vector (perpendicular to forward on horizontal plane)
     const rightX = cosY * shoulderOffset;
     const rightZ = -sinY * shoulderOffset;
 
+    // Camera sits behind the pivot along forward direction, elevated slightly above shoulders and offset to right
     let desiredCamPos = new THREE.Vector3(
-      targetHead.x - sinY * cosPitch * camDist + rightX,
-      targetHead.y + sinPitch * camDist + (camHeight - headY),
-      targetHead.z - cosY * cosPitch * camDist + rightZ
+      targetPivot.x - forwardDir.x * camDist + rightX,
+      targetPivot.y - forwardDir.y * camDist + camElevation,
+      targetPivot.z - forwardDir.z * camDist + rightZ
     );
 
     // Camera Collision Raycast Against All Map Obstacles
-    const camClearanceDist = CollisionWorld.castCameraRay(targetHead, desiredCamPos, 0.25);
-    const camRayDir = new THREE.Vector3().subVectors(desiredCamPos, targetHead);
+    const camClearanceDist = CollisionWorld.castCameraRay(targetPivot, desiredCamPos, 0.25);
+    const camRayDir = new THREE.Vector3().subVectors(desiredCamPos, targetPivot);
     const naturalDist = camRayDir.length();
 
     if (naturalDist > 0.01 && camClearanceDist < naturalDist) {
       camRayDir.normalize();
       desiredCamPos = new THREE.Vector3()
-        .copy(targetHead)
+        .copy(targetPivot)
         .addScaledVector(camRayDir, camClearanceDist);
     }
 
-    // Keep camera above ground
-    if (desiredCamPos.y < 0.35) {
-      desiredCamPos.y = 0.35;
+    // Keep camera safely above local terrain and obstacles (never near the feet or ground)
+    const terrainGroundY = CollisionWorld.getGroundHeight(
+      desiredCamPos.x,
+      desiredCamPos.z,
+      player.position[1]
+    );
+    const minCamHeightAboveGround = isProne ? 0.35 : isCrouching ? 0.75 : 0.95;
+    const minCamY = terrainGroundY + minCamHeightAboveGround;
+    if (desiredCamPos.y < minCamY) {
+      desiredCamPos.y = minCamY;
     }
 
     // Smooth camera damping
     if (currentCamPos.current.lengthSq() === 0) {
       currentCamPos.current.copy(desiredCamPos);
-      currentLookAt.current.copy(targetHead);
+      currentLookAt.current.copy(targetPivot);
     } else {
       const damp = isAiming ? 18 * delta : 12 * delta;
       currentCamPos.current.lerp(desiredCamPos, Math.min(1, damp));
-      currentLookAt.current.lerp(targetHead, Math.min(1, damp));
+      currentLookAt.current.lerp(targetPivot, Math.min(1, damp));
     }
 
     camera.position.copy(currentCamPos.current);
 
-    // Crosshair target: forward in line of sight
-    const lookTarget = new THREE.Vector3(
-      currentLookAt.current.x + sinY * cosPitch * 50,
-      currentLookAt.current.y - sinPitch * 50,
-      currentLookAt.current.z + cosY * cosPitch * 50
-    );
+    // Crosshair target: forward in line of sight (produces level, natural horizon and horizontal sightline)
+    const lookTarget = new THREE.Vector3()
+      .copy(currentCamPos.current)
+      .addScaledVector(forwardDir, 60);
     camera.lookAt(lookTarget);
     camera.updateMatrixWorld();
 

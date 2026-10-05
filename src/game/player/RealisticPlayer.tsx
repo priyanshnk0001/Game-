@@ -6,6 +6,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { PlayerState } from '../../types/game';
 import { WEAPON_SPAWNS } from '../../config/constants';
 import { RealisticWeapon } from '../weapons/RealisticWeapon';
+import { CollisionWorld } from '../collision/CollisionWorld';
 
 interface RealisticPlayerProps {
   player: PlayerState;
@@ -16,6 +17,7 @@ interface RealisticPlayerProps {
 const _v0 = new THREE.Vector3();
 const _v1 = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
+const _contactPos = new THREE.Vector3();
 const _q0 = new THREE.Quaternion();
 const _q1 = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
@@ -94,9 +96,18 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     leftUpLeg?: THREE.Bone;
     leftLeg?: THREE.Bone;
     leftFoot?: THREE.Bone;
+    leftToeBase?: THREE.Bone;
     rightUpLeg?: THREE.Bone;
     rightLeg?: THREE.Bone;
     rightFoot?: THREE.Bone;
+    rightToeBase?: THREE.Bone;
+    fingerBones?: {
+      bone: THREE.Bone;
+      name: string;
+      finger: 'Thumb' | 'Index' | 'Middle' | 'Ring' | 'Pinky';
+      joint: number;
+      isThumb: boolean;
+    }[];
   }>({});
 
   // Pristine Anatomical Rest Pose Registry (stores uncorrupted initial local rotations of every human bone)
@@ -133,6 +144,13 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
   // Discover and cache skeleton bones & register pristine rest quaternions
   useEffect(() => {
     const bones: typeof bonesRef.current = {};
+    const fingerBones: {
+      bone: THREE.Bone;
+      name: string;
+      finger: 'Thumb' | 'Index' | 'Middle' | 'Ring' | 'Pinky';
+      joint: number;
+      isThumb: boolean;
+    }[] = [];
     const restQuats = new Map<string, THREE.Quaternion>();
 
     cloned.traverse((node) => {
@@ -141,6 +159,17 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         restQuats.set(bone.name, bone.quaternion.clone());
 
         const cleanName = bone.name.replace('mixamorig:', '').replace('mixamorig', '');
+        const fingerMatch = cleanName.match(/^(LeftHand|RightHand)(Thumb|Index|Middle|Ring|Pinky)([1-3])$/);
+        if (fingerMatch) {
+          fingerBones.push({
+            bone,
+            name: cleanName,
+            finger: fingerMatch[2] as 'Thumb' | 'Index' | 'Middle' | 'Ring' | 'Pinky',
+            joint: parseInt(fingerMatch[3], 10),
+            isThumb: fingerMatch[2] === 'Thumb',
+          });
+        }
+
         switch (cleanName) {
           case 'Hips': bones.hips = bone; break;
           case 'Spine': bones.spine = bone; break;
@@ -163,13 +192,16 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
           case 'LeftUpLeg': bones.leftUpLeg = bone; break;
           case 'LeftLeg': bones.leftLeg = bone; break;
           case 'LeftFoot': bones.leftFoot = bone; break;
+          case 'LeftToeBase': bones.leftToeBase = bone; break;
           case 'RightUpLeg': bones.rightUpLeg = bone; break;
           case 'RightLeg': bones.rightLeg = bone; break;
           case 'RightFoot': bones.rightFoot = bone; break;
+          case 'RightToeBase': bones.rightToeBase = bone; break;
         }
       }
     });
 
+    bones.fingerBones = fingerBones;
     bonesRef.current = bones;
     restQuatsRef.current = restQuats;
 
@@ -211,7 +243,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     // Calibrated Human Stride Cadence:
     // Stride length ~1.65m (walk) expanding to ~2.15m (sprint).
     // Stride frequency directly matches travel distance to completely eliminate foot sliding/skating.
-    const currentStrideLen = THREE.MathUtils.lerp(1.65, 2.15, sprintW);
+    const currentStrideLen = THREE.MathUtils.lerp(5.15, 2.15, sprintW);
     const gaitFreq = isMoving ? (speed / currentStrideLen) * Math.PI * 2 : 0;
     gaitPhaseRef.current = (gaitPhaseRef.current + delta * gaitFreq) % (Math.PI * 2);
     const gp = gaitPhaseRef.current;
@@ -288,11 +320,11 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         characterGroupRef.current.rotation.y = 0;
 
         // Vertical and depth offsets:
-        // Crouch drops hips by ~0.26m so knees flex forward and feet remain planted flat
-        // Prone lowers torso to 0.10m ground contact and shifts Z by -0.70m to center hips in capsule
+        // TACTICAL CROUCH: hips drop 0.25m and shift back 0.08m to counterbalance forward torso and knees.
+        // Prone lowers torso to 0.10m ground contact and shifts Z by -0.70m to center hips in capsule.
         const crawlBob = proneT > 0.05 && isMoving ? Math.abs(Math.sin(gp * 2)) * 0.015 * proneT : 0;
-        const targetPosY = (0.10 * proneT) + crawlBob + (-0.26 * crouchT * (1.0 - proneT)) + pelvisBob * (1.0 - proneT);
-        const targetPosZ = -0.70 * proneT;
+        const targetPosY = (0.10 * proneT) + crawlBob + (-0.15 * crouchT * (1.0 - proneT)) + pelvisBob * (1.0 - proneT);
+        const targetPosZ = (-0.08 * crouchT * (1.0 - proneT)) + (-0.70 * proneT);
         const targetPosX = (proneT > 0.05 && isMoving ? Math.sin(gp) * 0.03 * proneT : 0) + pelvisSwayX * (1.0 - proneT);
 
         characterGroupRef.current.position.set(targetPosX, targetPosY, targetPosZ);
@@ -324,11 +356,99 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     resetBone(b.leftUpLeg);
     resetBone(b.leftLeg);
     resetBone(b.leftFoot);
+    resetBone(b.leftToeBase);
     resetBone(b.rightUpLeg);
     resetBone(b.rightLeg);
     resetBone(b.rightFoot);
+    resetBone(b.rightToeBase);
+    if (b.fingerBones) {
+      for (let i = 0; i < b.fingerBones.length; i++) {
+        resetBone(b.fingerBones[i].bone);
+      }
+    }
 
-    if (player.isDead) return;
+    // Dynamic ground placement: calculates actual lowest body/foot contact point and vertically places
+    // the character so that it rests naturally on the existing ground in sitting/crouch, standing, etc.
+    const enforceGroundContact = () => {
+      if (!characterGroupRef.current) return;
+      characterGroupRef.current.updateMatrixWorld(true);
+
+      const contactPoints = [
+        { bone: b.leftFoot, radius: 0.055 },
+        { bone: b.rightFoot, radius: 0.055 },
+        { bone: b.leftToeBase, radius: 0.035 },
+        { bone: b.rightToeBase, radius: 0.035 },
+        { bone: b.leftLeg, radius: 0.075 },
+        { bone: b.rightLeg, radius: 0.075 },
+        { bone: b.leftUpLeg, radius: 0.090 },
+        { bone: b.rightUpLeg, radius: 0.090 },
+        { bone: b.hips, radius: 0.110 },
+        { bone: b.spine, radius: 0.120 },
+        { bone: b.leftForeArm, radius: 0.055 },
+        { bone: b.rightForeArm, radius: 0.055 },
+        { bone: b.leftHand, radius: 0.045 },
+        { bone: b.rightHand, radius: 0.045 },
+      ];
+
+      const GROUND_MARGIN = 0.010; // Realistic ground contact margin (1cm)
+      let minDelta = Infinity;
+
+      // 1. Direct bone contact points
+      for (let i = 0; i < contactPoints.length; i++) {
+        const cp = contactPoints[i];
+        if (!cp.bone) continue;
+
+        cp.bone.getWorldPosition(_contactPos);
+        const lowestY = _contactPos.y - cp.radius;
+        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+
+        if (deltaToTarget < minDelta) {
+          minDelta = deltaToTarget;
+        }
+      }
+
+      // 2. Calf / shin midpoints (for sitting/kneeling postures where the lower leg rests against ground)
+      if (b.leftLeg && b.leftFoot) {
+        b.leftLeg.getWorldPosition(_contactPos);
+        b.leftFoot.getWorldPosition(_v1);
+        _contactPos.add(_v1).multiplyScalar(0.5);
+        const lowestY = _contactPos.y - 0.065;
+        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+        if (deltaToTarget < minDelta) {
+          minDelta = deltaToTarget;
+        }
+      }
+      if (b.rightLeg && b.rightFoot) {
+        b.rightLeg.getWorldPosition(_contactPos);
+        b.rightFoot.getWorldPosition(_v1);
+        _contactPos.add(_v1).multiplyScalar(0.5);
+        const lowestY = _contactPos.y - 0.065;
+        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+        if (deltaToTarget < minDelta) {
+          minDelta = deltaToTarget;
+        }
+      }
+
+      if (!isFinite(minDelta)) return;
+
+      if (player.isGrounded || player.isDead) {
+        // When grounded or dead, vertically place the character so the lowest body/foot contact point rests naturally on the existing ground
+        characterGroupRef.current.position.y -= minDelta;
+        characterGroupRef.current.updateMatrixWorld(true);
+      } else if (minDelta < 0) {
+        // While airborne, only prevent clipping into terrain surfaces
+        characterGroupRef.current.position.y -= minDelta;
+        characterGroupRef.current.updateMatrixWorld(true);
+      }
+    };
+
+    if (player.isDead) {
+      enforceGroundContact();
+      return;
+    }
 
     // Subtle natural pelvic list/roll during gait weight transfer
     if (b.hips && proneT < 0.5 && !isInWater) {
@@ -339,8 +459,8 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     // 3. Human Spine & Breathing Dynamics
     const breathCycle = Math.sin(breathTimeRef.current * 1.8);
     if (b.spine1) {
-      // Subtle natural chest rise and fall during breathing (0.012 rad)
-      _q0.setFromAxisAngle(X_AXIS, breathCycle * 0.012 * (1.0 - proneT));
+      // Subtle natural chest rise and fall during breathing (0.012 rad) + thoracic forward lean in crouch
+      _q0.setFromAxisAngle(X_AXIS, breathCycle * 0.012 * (1.0 - proneT) + 0.18 * crouchT);
       // Counter-rotation of upper torso opposite to pelvis/stride for natural balance
       _q1.setFromAxisAngle(Y_AXIS, -Math.sin(gp) * 0.035 * locoW * (1.0 - proneT));
       _qDelta.multiplyQuaternions(_q0, _q1);
@@ -350,7 +470,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     // 4. Anatomical Human Locomotion Kinematics (Hips -> Thigh -> Knee -> Ankle -> Foot)
     if (!isInWater && !player.isVaulting && !player.isMantling && proneT < 0.5) {
       // Stride amplitude scales smoothly from walking (~0.42 rad) to sprinting (~0.72 rad)
-      const thighAmp = THREE.MathUtils.lerp(0.42, 0.72, sprintW) * locoW;
+      const thighAmp = THREE.MathUtils.lerp(0.12, 0.52, sprintW) * locoW;
 
       // Bilateral phase offset by PI radians (180 deg)
       const lPhase = gp;
@@ -365,54 +485,74 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       const lThighAngle = lSwing * thighAmp;
       const rThighAngle = rSwing * thighAmp;
 
+      // Subtle forward foot/step placement during swing and landing phase:
+      // FOOT LIFTS -> KNEE BENDS -> FOOT SWINGS FORWARD -> REACHES SLIGHTLY AHEAD -> PLANTS ON GROUND -> BODY PASSES OVER
+      const stepPlacementAmp = THREE.MathUtils.lerp(0.20, 0.18, sprintW) * locoW;
+      const lStepPlacement = Math.max(0, Math.sin(lPhase - 0.5)) * stepPlacementAmp;
+      const rStepPlacement = Math.max(0, Math.sin(rPhase - 0.5)) * stepPlacementAmp;
+
       // Anatomical Knee Flexion:
       // During swing phase (cos > 0), knee flexes deeply to lift foot and clear the ground:
       // ~1.05 rad (60 deg) for walk, up to 1.35 rad (77 deg) for sprint.
       // In stance phase (cos <= 0), knee maintains compliant extension (-0.08 rad).
-      const kneeFlexBase = THREE.MathUtils.lerp(0.95, 1.30, sprintW);
+      const kneeFlexBase = THREE.MathUtils.lerp(1.25, 1.90, sprintW);
       const lKneeFlex = -0.08 - (lCos > 0 ? Math.pow(lCos, 1.4) * kneeFlexBase : 0) * locoW;
       const rKneeFlex = -0.08 - (rCos > 0 ? Math.pow(rCos, 1.4) * kneeFlexBase : 0) * locoW;
 
       // Ankle Articulation (dorsiflexion on heel strike, plantarflexion on push-off):
-      const lAnkle = (-lSwing * 0.18 + (lCos > 0.2 ? 0.16 : -0.12 * Math.max(0, -lCos))) * locoW;
-      const rAnkle = (-rSwing * 0.18 + (rCos > 0.2 ? 0.16 : -0.12 * Math.max(0, -rCos))) * locoW;
+      const lAnkle = (-lSwing * -0.58 + (lCos > 0.2 ? 0.16 : -0.12 * Math.max(0, -lCos))) * locoW;
+      const rAnkle = (-rSwing * -0.58 + (rCos > 0.2 ? 0.16 : -0.12 * Math.max(0, -rCos))) * locoW;
 
-      // Crouch stance additions (knees bend forward naturally, hips lower)
-      const crouchThigh = 0.70 * crouchT;
-      const crouchKnee = -1.25 * crouchT;
-      const crouchAnkle = 0.55 * crouchT;
-      const crouchSpine = 0.22 * crouchT;
+      // PUBG tactical combat crouch geometry (independent per-side tuning controls):
+      // Left leg crouch controls:
+      const leftCrouchThigh = 1.86 * crouchT;
+      const leftCrouchKnee = -2.48 * crouchT;
+      const leftCrouchAnkle = 0.58 * crouchT;
 
+      // Right leg crouch controls:
+      const rightCrouchThigh = 0.86 * crouchT;
+      const rightCrouchKnee = -2.58 * crouchT;
+      const rightCrouchAnkle = -0.48 * crouchT;
+
+      const crouchSpine = 0.35 * crouchT;
+
+      // Locomotion swing is suppressed 80% in full crouch so stealth gait doesn't override the crouch pose
       if (b.leftUpLeg) {
-        _q0.setFromAxisAngle(X_AXIS, lThighAngle * (1.0 - crouchT * 0.5) + crouchThigh);
+        _q0.setFromAxisAngle(X_AXIS, (lThighAngle + lStepPlacement) * (1.0 - crouchT * 0.80) + leftCrouchThigh);
         b.leftUpLeg.quaternion.multiply(_q0);
       }
       if (b.rightUpLeg) {
-        _q0.setFromAxisAngle(X_AXIS, rThighAngle * (1.0 - crouchT * 0.5) + crouchThigh);
+        _q0.setFromAxisAngle(X_AXIS, (rThighAngle + rStepPlacement) * (1.0 - crouchT * 0.80) + rightCrouchThigh);
         b.rightUpLeg.quaternion.multiply(_q0);
       }
 
       if (b.leftLeg) {
-        _q0.setFromAxisAngle(X_AXIS, lKneeFlex * (1.0 - crouchT * 0.5) + crouchKnee);
+        _q0.setFromAxisAngle(X_AXIS, lKneeFlex * (1.0 - crouchT * 0.80) + leftCrouchKnee);
         b.leftLeg.quaternion.multiply(_q0);
       }
       if (b.rightLeg) {
-        _q0.setFromAxisAngle(X_AXIS, rKneeFlex * (1.0 - crouchT * 0.5) + crouchKnee);
+        _q0.setFromAxisAngle(X_AXIS, rKneeFlex * (1.0 - crouchT * 0.80) + rightCrouchKnee);
         b.rightLeg.quaternion.multiply(_q0);
       }
 
       if (b.leftFoot) {
-        _q0.setFromAxisAngle(X_AXIS, lAnkle * (1.0 - crouchT) + crouchAnkle);
+        _q0.setFromAxisAngle(X_AXIS, lAnkle * (1.0 - crouchT * 0.80) + leftCrouchAnkle);
         b.leftFoot.quaternion.multiply(_q0);
       }
       if (b.rightFoot) {
-        _q0.setFromAxisAngle(X_AXIS, rAnkle * (1.0 - crouchT) + crouchAnkle);
+        _q0.setFromAxisAngle(X_AXIS, rAnkle * (1.0 - crouchT * 0.80) + rightCrouchAnkle);
         b.rightFoot.quaternion.multiply(_q0);
       }
 
       if (b.spine) {
         _q0.setFromAxisAngle(X_AXIS, crouchSpine);
         b.spine.quaternion.multiply(_q0);
+      }
+
+      // Counter-tilt neck in crouch so head stays looking forward alertly along horizon
+      if (b.neck) {
+        _q0.setFromAxisAngle(X_AXIS, -0.30 * crouchT);
+        b.neck.quaternion.multiply(_q0);
       }
 
       // In-air jump tuck
@@ -484,6 +624,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
       // Locomotion arm swing amplitude (walk ~0.30 rad, sprint ~0.60 rad)
       const armSwingAmp = THREE.MathUtils.lerp(0.30, 0.60, sprintW) * locoW;
+      const elbowSwingAmp = THREE.MathUtils.lerp(0.10, 0.25, sprintW) * locoW;
 
       // Natural Contralateral Arm Swing:
       // Left leg phase is gp. When left leg swings forward (sin(gp) > 0),
@@ -493,6 +634,9 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       // For RightArm: -Z is forward swing, +Z is backward swing.
       const lArmSwing = -Math.sin(gp) * armSwingAmp;
       const rArmSwing = -Math.sin(gp) * armSwingAmp;
+
+      const lElbowSwing = Math.sin(gp + Math.PI) * elbowSwingAmp;
+      const rElbowSwing = Math.sin(gp) * elbowSwingAmp;
 
       // Subtle shoulder / clavicle counter-tilt
       if (b.leftShoulder) {
@@ -504,31 +648,39 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         b.rightShoulder.quaternion.multiply(_q0);
       }
 
-      // Upper Arms: lowered naturally along torso (+0.48 rad on local X) + sagittal swing on local Z
+      // Upper Arms: independent left and right crouch controls
+      const leftArmCrouchX = (0.48 - 0.12 * crouchT) * unarmWeight;
+      const rightArmCrouchX = (0.48 - 0.12 * crouchT) * unarmWeight;
+
+      const leftElbowCrouch = 0.35 * crouchT;
+      const rightElbowCrouch = 0.35 * crouchT;
+
       if (b.leftArm) {
-        _q0.setFromAxisAngle(X_AXIS, 0.48 * unarmWeight);
+        _q0.setFromAxisAngle(X_AXIS, leftArmCrouchX);
         _q1.setFromAxisAngle(Z_AXIS, lArmSwing * unarmWeight);
         _qDelta.multiplyQuaternions(_q0, _q1);
         b.leftArm.quaternion.multiply(_qDelta);
       }
 
       if (b.rightArm) {
-        _q0.setFromAxisAngle(X_AXIS, 0.48 * unarmWeight);
+        _q0.setFromAxisAngle(X_AXIS, rightArmCrouchX);
         _q1.setFromAxisAngle(Z_AXIS, rArmSwing * unarmWeight);
         _qDelta.multiplyQuaternions(_q0, _q1);
         b.rightArm.quaternion.multiply(_qDelta);
       }
 
-      // Forearms / Elbows: relaxed natural bend, flexes more during forward swing
+      // Forearms / Elbows: relaxed natural bend, flexes forward in crouch for tactical ready posture
+      const sprintElbowBend = THREE.MathUtils.lerp(0.0, -1.20, sprintW);
+
       // Left ForeArm: +Z flexes elbow forward
-      const lElbowFlex = (0.20 + Math.max(0, lArmSwing) * 0.35) * unarmWeight;
+      const lElbowFlex = (-0.20 - sprintElbowBend + leftElbowCrouch + Math.max(0, lArmSwing) * 0.35 + lElbowSwing) * unarmWeight;
       if (b.leftForeArm) {
         _q0.setFromAxisAngle(Z_AXIS, lElbowFlex);
         b.leftForeArm.quaternion.multiply(_q0);
       }
 
       // Right ForeArm: -Z flexes elbow forward
-      const rElbowFlex = (-0.20 - Math.max(0, -rArmSwing) * 0.35) * unarmWeight;
+      const rElbowFlex = (0.20 + sprintElbowBend - rightElbowCrouch - Math.max(0, -rArmSwing) * 0.35 + rElbowSwing) * unarmWeight;
       if (b.rightForeArm) {
         _q0.setFromAxisAngle(Z_AXIS, rElbowFlex);
         b.rightForeArm.quaternion.multiply(_q0);
@@ -542,6 +694,51 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       if (b.rightHand) {
         _q0.setFromAxisAngle(Z_AXIS, rArmSwing * 0.15 * unarmWeight);
         b.rightHand.quaternion.multiply(_q0);
+      }
+
+      // Natural running fist: progressively curls finger bones into a closed fist when sprinting
+      if (sprintW > 0.001 && b.fingerBones) {
+        const fistWeight = sprintW * unarmWeight;
+
+        // Finalized fist curl values (curl rotation around X_AXIS)
+        // Joint 1: proximal (base knuckle), Joint 2: intermediate, Joint 3: distal (tip)
+        const thumbCurl1 = 0.15;
+        const thumbCurl2 = -0.35;
+        const thumbCurl3 = 0.10;
+
+        const indexCurl1 = 1.15;
+        const indexCurl2 = 1.35;
+        const indexCurl3 = 1.05;
+
+        const middleCurl1 = 1.15;
+        const middleCurl2 = 1.35;
+        const middleCurl3 = 1.05;
+
+        const ringCurl1 = 1.15;
+        const ringCurl2 = 1.35;
+        const ringCurl3 = 1.05;
+
+        const pinkyCurl1 = 1.15;
+        const pinkyCurl2 = 1.35;
+        const pinkyCurl3 = 1.05;
+
+        for (let i = 0; i < b.fingerBones.length; i++) {
+          const fb = b.fingerBones[i];
+          let curl = 0;
+          if (fb.finger === 'Thumb') {
+            curl = fb.joint === 1 ? thumbCurl1 : fb.joint === 2 ? thumbCurl2 : thumbCurl3;
+          } else if (fb.finger === 'Index') {
+            curl = fb.joint === 1 ? indexCurl1 : fb.joint === 2 ? indexCurl2 : indexCurl3;
+          } else if (fb.finger === 'Middle') {
+            curl = fb.joint === 1 ? middleCurl1 : fb.joint === 2 ? middleCurl2 : middleCurl3;
+          } else if (fb.finger === 'Ring') {
+            curl = fb.joint === 1 ? ringCurl1 : fb.joint === 2 ? ringCurl2 : ringCurl3;
+          } else if (fb.finger === 'Pinky') {
+            curl = fb.joint === 1 ? pinkyCurl1 : fb.joint === 2 ? pinkyCurl2 : pinkyCurl3;
+          }
+          _q0.setFromAxisAngle(X_AXIS, curl * fistWeight);
+          fb.bone.quaternion.multiply(_q0);
+        }
       }
     }
 
@@ -587,6 +784,10 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         b.leftHand.quaternion.multiply(_q0);
       }
     }
+
+    // 8.5 Global Ground Clearance & Surface Contact Enforcement
+    // Ensures no body part (feet, knees, hands, pelvis, torso, head) ever penetrates the ground
+    enforceGroundContact();
 
     // 9. Weapon Socket Positioning (Smooth transition between Upper Back Holster and Ready Hands)
     const backPos1 = _v1;
