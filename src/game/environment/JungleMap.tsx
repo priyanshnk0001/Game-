@@ -10,6 +10,7 @@ import {
   JungleRoadDef,
   getFilteredJungleTrees,
 } from '../../config/maps';
+import { BirdSystem } from './birds';
 
 // ============================================================================
 // 1. PROCEDURAL 3D FOLIAGE GEOMETRY & ROAD TEXTURES
@@ -2626,6 +2627,8 @@ export const JungleMap: React.FC = () => {
           )}
           {/* Surrounding Mountain Horizon Rim */}
           <mesh position={[0, -4, 0]} geometry={horizonMountainGeometry} material={materials.horizonMountain} />
+          {/* Atmospheric Aerial Wildlife - Flying Bird Flocks in the Sky */}
+          <BirdSystem />
         </>
       )}
 
