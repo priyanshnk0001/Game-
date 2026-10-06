@@ -467,6 +467,12 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
           verticalVelocity.current = 0;
         }
 
+        // Sector-02 River Water State & Wading/Swimming Detection
+        // (Temporarily disabled: player moves on foot as normal ground movement across the river channel)
+        if (gameState.activeMapId === 'jungle-ops') {
+          player.waterState = 'land';
+        }
+
         // 9. CHARACTER ROTATION & FACING
         const camAngle = Math.atan2(cameraForward.x, cameraForward.z);
         let targetFacingAngle = player.rotationY;

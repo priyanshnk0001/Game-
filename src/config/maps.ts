@@ -2,6 +2,7 @@
 
 import { MapDefinition, MapId } from '../types/game';
 import { CollisionBox } from '../game/collision/CollisionWorld';
+import { getRiverProfile, SECTOR02_RIVER_SPINE, SECTOR02_RIVER_CONFIG } from '../game/environment/river';
 
 export const BATTLE_AREA_OBSTACLES: CollisionBox[] = [
   // 1. Concrete Perimeter Walls (56m x 4m x 0.8m)
@@ -629,13 +630,6 @@ export function getJungleTerrainHeight(x: number, z: number): number {
   const villageDistSq = dxVillage * dxVillage + dzVillage * dzVillage;
   const villageHeight = villageDistSq < 1.0 ? Math.cos(Math.sqrt(villageDistSq) * (Math.PI / 2)) * 3.2 : 0;
 
-  // 3. Central Winding Creek Ravine - Sunken water drainage gully cutting down to -2.0m across 500m
-  // The stream curves from [225, -170] through [0, 0] to [-225, 170]
-  const streamPathZ = -x * 0.75 + Math.sin(x * 0.02) * 14.0;
-  const distToStream = Math.abs(z - streamPathZ);
-  const streamWidth = 14.0;
-  const streamDip = distToStream < streamWidth ? -Math.cos((distToStream / streamWidth) * (Math.PI / 2)) * 2.0 : 0;
-
   // 4. Southeast Farmland Rolling Knolls (x: 60..180, z: -180..-60) - Gentle agricultural slopes (+2.5m)
   const dxFarm = (x - 120) / 60;
   const dzFarm = (z - (-120)) / 60;
@@ -659,8 +653,22 @@ export function getJungleTerrainHeight(x: number, z: number): number {
     Math.sin(x * 0.024 + z * 0.015) * 0.75 +
     Math.cos(x * 0.015 - z * 0.024) * 0.65;
 
-  const total = ridgeHeight + villageHeight + farmHeight + ruinsHeight + fobPlatform + streamDip + groundRoll;
-  return Math.max(-2.2, total);
+  const inlandLandHeight = Math.max(0.45, 1.0 + ridgeHeight + villageHeight + farmHeight + ruinsHeight + fobPlatform + groundRoll);
+
+  // 8. Natural River Bed Channel & Sloping River Banks
+  const riverProfile = getRiverProfile(x, z);
+  if (riverProfile.isInsideRiver) {
+    // Carved riverbed channel beneath the water surface (meeting waterLevel at banks, dropping in center)
+    const bedRipple = Math.sin(x * 0.18 + z * 0.14) * 0.12;
+    return riverProfile.bedElevation + bedRipple;
+  } else if (riverProfile.isInsideBank) {
+    // Natural sloping riverbank connecting inland terrain down to water surface (-1.35m)
+    const t = riverProfile.bankT; // 0.0 at waterline, 1.0 at jungle verge
+    const smoothT = t * t * (3.0 - 2.0 * t); // Hermite smoothstep
+    return inlandLandHeight * smoothT + riverProfile.waterLevel * (1.0 - smoothT);
+  }
+
+  return inlandLandHeight;
 }
 
 /**
@@ -679,19 +687,11 @@ export function getTreePlacementY(treeX: number, treeZ: number, baseRadius = 2.0
   return centerH - slopeDrop * 0.5;
 }
 
-// River System Constants (Sector-02 Ravine Creek)
-export const RIVER_SPINE: [number, number][] = [
-  [-225, 170],
-  [-150, 115],
-  [-75, 60],
-  [0, 0],
-  [75, -60],
-  [150, -115],
-  [225, -170],
-];
-export const RIVER_WATER_Y = -1.35;
-export const RIVER_HALF_WIDTH = 7.0;
-export const RIVER_MAX_DEPTH = 2.5;
+// River System Constants (Sector-02 Ravine Creek - derived from reusable riverConfig)
+export const RIVER_SPINE: [number, number][] = SECTOR02_RIVER_SPINE;
+export const RIVER_WATER_Y = SECTOR02_RIVER_CONFIG.waterLevel;
+export const RIVER_HALF_WIDTH = SECTOR02_RIVER_CONFIG.defaultWidth * 0.5;
+export const RIVER_MAX_DEPTH = SECTOR02_RIVER_CONFIG.defaultDepth;
 
 // ============================================================================
 // SECTOR-02 JUNGLE TREE REGISTRY (SINGLE SOURCE OF TRUTH FOR 3D & 2D MAPS)

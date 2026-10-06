@@ -11,6 +11,7 @@ import {
   getFilteredJungleTrees,
 } from '../../config/maps';
 import { BirdSystem } from './birds';
+import { RiverSystem, getRiverProfile } from './river';
 
 // ============================================================================
 // 1. PROCEDURAL 3D FOLIAGE GEOMETRY & ROAD TEXTURES
@@ -796,7 +797,7 @@ const VillageMarketShed: React.FC<{
 };
 
 // Heavy Timber Trestle Bridge (Spans central creek ravine on 45-deg road axis)
-const TimberTrestleBridge: React.FC<{
+export const TimberTrestleBridge: React.FC<{
   position: [number, number, number];
   length: number;
   width: number;
@@ -2048,7 +2049,8 @@ export const SECTOR02_CONFIG = {
   ENABLE_STRUCTURES: false,       // Houses, FOB Sabre, buildings, watchtowers, sheds, ruins
   ENABLE_PROPS: false,            // Crates, sandbags, containers, fuel drums, cistern, poles, dock
   ENABLE_ROCKS_AND_LOGS: false,   // Boulders, fallen logs
-  ENABLE_WATER_AND_BRIDGE: false, // River plane and trestle bridge
+  ENABLE_RIVER: true,             // Procedural natural flowing river system
+  ENABLE_WATER_AND_BRIDGE: false, // Legacy bridge flag (bridges to be added later)
   ENABLE_NON_TREE_VEGETATION: false, // Bamboo thickets, separate fern clusters
 };
 
@@ -2162,6 +2164,7 @@ export const JungleMap: React.FC = () => {
       roughnessMap: groundRoughness,
       aoMap: groundAO,
       aoMapIntensity: 1.0,
+      vertexColors: true,
       roughness: 0.85,
       metalness: 0.02,
     });
@@ -2542,6 +2545,26 @@ export const JungleMap: React.FC = () => {
         cb = cb * (1.0 - verge * 0.32) + 0.65 * verge * 0.32;
       }
 
+      // River bed & river bank transition coloring
+      const riverProfile = getRiverProfile(vx, vz);
+      if (riverProfile.isInsideRiver) {
+        // Wet submerged riverbed silt, river sand & gravel
+        const crossT = riverProfile.crossT; // 0 at center, 1 at edge
+        cr = 0.28 + crossT * 0.12;
+        cg = 0.26 + crossT * 0.10;
+        cb = 0.22 + crossT * 0.08;
+      } else if (riverProfile.isInsideBank) {
+        // Moist muddy riverbank & dirt slope leading down to water
+        const bankT = riverProfile.bankT; // 0 at water, 1 at jungle verge
+        const smoothBank = bankT * bankT * (3.0 - 2.0 * bankT);
+        const wetBankR = 0.38;
+        const wetBankG = 0.35;
+        const wetBankB = 0.28;
+        cr = wetBankR * (1.0 - smoothBank) + cr * smoothBank;
+        cg = wetBankG * (1.0 - smoothBank) + cg * smoothBank;
+        cb = wetBankB * (1.0 - smoothBank) + cb * smoothBank;
+      }
+
       colors[i * 3] = cr;
       colors[i * 3 + 1] = cg;
       colors[i * 3 + 2] = cb;
@@ -2661,18 +2684,9 @@ export const JungleMap: React.FC = () => {
       )}
 
       {/* ================================================================ */}
-      {/* 3. CENTRAL CREEK RAVINE & SEAMLESS TIMBER TRESTLE BRIDGE */}
+      {/* 3. PROCEDURAL NATURAL RIVER SYSTEM */}
       {/* ================================================================ */}
-      {SECTOR02_CONFIG.ENABLE_WATER_AND_BRIDGE && (
-        <>
-          {/* Sunken River Surface (Follows lower ravine at y = -1.35, aligned along ravine across 500m) */}
-          <mesh position={[0, -1.35, 0]} rotation={[-Math.PI / 2, -Math.PI / 4, 0]} receiveShadow material={materials.streamWater}>
-            <planeGeometry args={[14.0, 700]} />
-          </mesh>
-          {/* Timber Trestle Bridge (Spans ravine at [0, 0], 45-deg collinear with road) */}
-          <TimberTrestleBridge position={[0, 0.25, 0]} length={12.0} width={6.5} rotationY={Math.PI / 4} woodMaterial={materials.weatheredWood} />
-        </>
-      )}
+      {SECTOR02_CONFIG.ENABLE_RIVER && <RiverSystem />}
 
       {/* ================================================================ */}
       {/* 4. NORTHEAST MAIN TOWN: "BAN KHAO" (On Elevated +2.8m Plateau) */}
