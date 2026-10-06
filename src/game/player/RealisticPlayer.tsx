@@ -6,11 +6,26 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { PlayerState } from '../../types/game';
 import { WEAPON_SPAWNS } from '../../config/constants';
 import { RealisticWeapon } from '../weapons/RealisticWeapon';
+import { CollisionWorld } from '../collision/CollisionWorld';
 
 interface RealisticPlayerProps {
   player: PlayerState;
   isLocal: boolean;
 }
+
+// Pre-allocated scratch vectors and quaternions for 60fps zero-garbage-collection calculations
+const _v0 = new THREE.Vector3();
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _contactPos = new THREE.Vector3();
+const _q0 = new THREE.Quaternion();
+const _q1 = new THREE.Quaternion();
+const _q2 = new THREE.Quaternion();
+const _qDelta = new THREE.Quaternion();
+
+const X_AXIS = new THREE.Vector3(1, 0, 0);
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
 export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLocal }) => {
   const rootGroupRef = useRef<THREE.Group>(null);
@@ -18,20 +33,19 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
   const weaponSocket1Ref = useRef<THREE.Group>(null);
   const weaponSocket2Ref = useRef<THREE.Group>(null);
 
-  // Load Vanguard tactical soldier GLB
-  const { scene, animations } = useGLTF('/models/Soldier.glb');
+  // Load realistic human male character GLB
+  const { scene } = useGLTF('/models/player/human_male.glb');
 
-  // Clone skeleton for independent bones and animation mixers per player
+  // Clone skeleton for independent bones and animation per player instance
   const cloned = useMemo(() => {
     const clone = cloneSkeleton(scene) as THREE.Group;
 
-    // Enable shadows and customize team colors
+    // Enable shadows and configure high-fidelity PBR skin & material shaders
     clone.traverse((child) => {
       if ((child as THREE.SkinnedMesh).isSkinnedMesh) {
         child.castShadow = true;
         child.receiveShadow = true;
 
-        // Clone materials so P1 and P2 can have team uniforms
         const mesh = child as THREE.SkinnedMesh;
         if (Array.isArray(mesh.material)) {
           mesh.material = mesh.material.map((m) => m.clone());
@@ -39,173 +53,157 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
           mesh.material = mesh.material.clone();
         }
 
-        // Apply team color accents to visor
-        if (child.name.toLowerCase().includes('visor')) {
-          const visorMat = (mesh.material as THREE.MeshStandardMaterial);
-          if (visorMat) {
-            visorMat.emissive = new THREE.Color(player.isDead ? '#334155' : player.color);
-            visorMat.emissiveIntensity = player.isDead ? 0.1 : 1.2;
+        const mats = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) as THREE.MeshStandardMaterial[];
+        mats.forEach((mat) => {
+          if (!mat) return;
+          const matName = (mat.name || '').toLowerCase();
+          // High-grade PBR skin calibration: natural surface roughness and realistic ambient light response
+          if (matName.includes('face') || matName.includes('body') || matName.includes('legs') || matName.includes('hand')) {
+            mat.roughness = 0.68;
+            mat.metalness = 0.0;
+            mat.envMapIntensity = 0.85;
+          } else if (matName.includes('eye')) {
+            mat.roughness = 0.12;
+            mat.metalness = 0.0;
+            mat.envMapIntensity = 1.2;
+          } else if (matName.includes('teeth')) {
+            mat.roughness = 0.35;
+            mat.metalness = 0.0;
           }
-        }
+        });
       }
     });
 
     return clone;
-  }, [scene, player.color, player.isDead]);
+  }, [scene]);
 
-  // Setup AnimationMixer
-  const mixer = useMemo(() => new THREE.AnimationMixer(cloned), [cloned]);
-  const actions = useMemo(() => {
-    const actMap: Record<string, THREE.AnimationAction> = {};
-    animations.forEach((clip) => {
-      actMap[clip.name] = mixer.clipAction(clip);
-    });
-    return actMap;
-  }, [animations, mixer]);
+  // Clean Human Skeleton Bone References
+  const bonesRef = useRef<{
+    hips?: THREE.Bone;
+    spine?: THREE.Bone;
+    spine1?: THREE.Bone;
+    spine2?: THREE.Bone;
+    neck?: THREE.Bone;
+    head?: THREE.Bone;
+    leftShoulder?: THREE.Bone;
+    leftArm?: THREE.Bone;
+    leftForeArm?: THREE.Bone;
+    leftHand?: THREE.Bone;
+    rightShoulder?: THREE.Bone;
+    rightArm?: THREE.Bone;
+    rightForeArm?: THREE.Bone;
+    rightHand?: THREE.Bone;
+    leftUpLeg?: THREE.Bone;
+    leftLeg?: THREE.Bone;
+    leftFoot?: THREE.Bone;
+    leftToeBase?: THREE.Bone;
+    rightUpLeg?: THREE.Bone;
+    rightLeg?: THREE.Bone;
+    rightFoot?: THREE.Bone;
+    rightToeBase?: THREE.Bone;
+    fingerBones?: {
+      bone: THREE.Bone;
+      name: string;
+      finger: 'Thumb' | 'Index' | 'Middle' | 'Ring' | 'Pinky';
+      joint: number;
+      isThumb: boolean;
+    }[];
+  }>({});
 
-  const currentActionRef = useRef<string>('Idle');
-  const prevPosRef = useRef<THREE.Vector3>(new THREE.Vector3(...player.position));
-  const spineBoneRef = useRef<THREE.Object3D | null>(null);
+  // Pristine Anatomical Rest Pose Registry (stores uncorrupted initial local rotations of every human bone)
+  const restQuatsRef = useRef<Map<string, THREE.Quaternion>>(new Map());
 
-  // Skeleton bone references for procedural military crouch, prone crawl, and arm aiming
-  const hipsBoneRef = useRef<THREE.Bone | null>(null);
-  const spineBone0Ref = useRef<THREE.Bone | null>(null);
-  const neckBoneRef = useRef<THREE.Bone | null>(null);
-  const headBoneRef = useRef<THREE.Bone | null>(null);
-
-  const leftUpLegRef = useRef<THREE.Bone | null>(null);
-  const leftLegRef = useRef<THREE.Bone | null>(null);
-  const leftFootRef = useRef<THREE.Bone | null>(null);
-
-  const rightUpLegRef = useRef<THREE.Bone | null>(null);
-  const rightLegRef = useRef<THREE.Bone | null>(null);
-  const rightFootRef = useRef<THREE.Bone | null>(null);
-
-  // Base bind pose quaternions to prevent accumulate drift
-  const baseLeftUpLegRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
-  const baseLeftLegRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
-  const baseLeftFootRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
-
-  const baseRightUpLegRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
-  const baseRightLegRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
-  const baseRightFootRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
-
-  const baseSpine0Ref = useRef<THREE.Quaternion>(new THREE.Quaternion());
-  const baseNeckRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
-  const baseHeadRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
-  const baseRightShoulderRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
-  const baseLeftShoulderRef = useRef<THREE.Quaternion>(new THREE.Quaternion());
-
-  // Smooth continuous stance transition progress: 0.0 to 1.0
-  const crouchAmountRef = useRef<number>(player.isCrouching ? 1.0 : 0.0);
-  const proneAmountRef = useRef<number>(player.isProne ? 1.0 : 0.0);
-  const crawlPhaseRef = useRef<number>(0);
-
-  // Arm bone references for procedural two-handed tactical holding pose
-  // Right Arm (holds pistol grip & trigger with stock tucked firmly against right shoulder)
-  const rightShoulderRef = useRef<THREE.Bone | null>(null);
-  const rightArmRef = useRef<THREE.Bone | null>(null);
-  const rightForeArmRef = useRef<THREE.Bone | null>(null);
-  const rightHandRef = useRef<THREE.Bone | null>(null);
-
-  // Left Arm (reaches across torso to grip and cradle the front handguard / foregrip)
-  const leftShoulderRef = useRef<THREE.Bone | null>(null);
-  const leftArmRef = useRef<THREE.Bone | null>(null);
-  const leftForeArmRef = useRef<THREE.Bone | null>(null);
-  const leftHandRef = useRef<THREE.Bone | null>(null);
-
-  // 1. HOLSTERED STATE MOUNT 1 (Back of Torso) — LOCKED / UNTOUCHED
-  // Attached to mixamorig:Spine2 (upper chest/back bone).
-  // Positioned diagonally across the back from upper right shoulder to lower left hip,
-  // resting snug against the back armor vest plate carrier (z = -17.5cm, no floating, no deep clipping).
+  // Holstered Weapon Back Mounts (attached to Spine2 on upper back in 1:1 metric units)
   const backMount1 = useMemo(() => {
     const obj = new THREE.Object3D();
-    obj.position.set(0.0, -3.0, -17.5);
+    obj.position.set(0.0, -0.03, -0.175);
     obj.rotation.set(1.475, -0.583, -1.584);
     return obj;
   }, []);
 
-  // 2. HOLSTERED STATE MOUNT 2 (Secondary Back Cross-Sling)
-  // Attached to mixamorig:Spine2.
-  // Crosses diagonally from upper left shoulder to lower right hip,
-  // seated 2.5cm behind mount 1 (z = -20.0cm) to form an authentic dual-weapon tactical sling with zero clipping.
   const backMount2 = useMemo(() => {
     const obj = new THREE.Object3D();
-    obj.position.set(0.0, -3.0, -20.0);
+    obj.position.set(0.0, -0.03, -0.200);
     obj.rotation.set(1.475, 0.583, 1.584);
     return obj;
   }, []);
 
-  // Smooth transition progress: 0.0 = Holstered on Back, 1.0 = Ready in Hands for Slot 1 and Slot 2
-  const transitionProgress1Ref = useRef<number>(player.activeSlot === 1 && player.weaponState === 'ready' ? 1.0 : 0.0);
-  const transitionProgress2Ref = useRef<number>(player.activeSlot === 2 && player.weaponState === 'ready' ? 1.0 : 0.0);
+  // Continuous animation state tracking
+  const prevPosRef = useRef<THREE.Vector3>(new THREE.Vector3(...player.position));
+  const gaitPhaseRef = useRef<number>(0);
+  const breathTimeRef = useRef<number>(Math.random() * 10);
+  const locoBlendRef = useRef<number>(0);
+  const sprintBlendRef = useRef<number>(0);
+  const crouchProgressRef = useRef<number>(player.isCrouching ? 1.0 : 0.0);
+  const proneProgressRef = useRef<number>(player.isProne ? 1.0 : 0.0);
+  const weaponTransition1Ref = useRef<number>(player.activeSlot === 1 && player.weaponState === 'ready' ? 1.0 : 0.0);
+  const weaponTransition2Ref = useRef<number>(player.activeSlot === 2 && player.weaponState === 'ready' ? 1.0 : 0.0);
   const aimProgressRef = useRef<number>(player.isAiming ? 1.0 : 0.0);
+  const recoilKickRef = useRef<number>(0);
 
-  // Discover and cache skeleton bones & attach back mounts to Spine2
+  // Discover and cache skeleton bones & register pristine rest quaternions
   useEffect(() => {
+    const bones: typeof bonesRef.current = {};
+    const fingerBones: {
+      bone: THREE.Bone;
+      name: string;
+      finger: 'Thumb' | 'Index' | 'Middle' | 'Ring' | 'Pinky';
+      joint: number;
+      isThumb: boolean;
+    }[] = [];
+    const restQuats = new Map<string, THREE.Quaternion>();
+
     cloned.traverse((node) => {
-      const name = node.name.replace(':', '');
-      if (name === 'mixamorigSpine2') {
-        spineBoneRef.current = node;
-        node.add(backMount1);
-        node.add(backMount2);
-      }
-      if (name === 'mixamorigHips') hipsBoneRef.current = node as THREE.Bone;
-      if (name === 'mixamorigSpine') {
-        spineBone0Ref.current = node as THREE.Bone;
-        baseSpine0Ref.current.copy(node.quaternion);
-      }
-      if (name === 'mixamorigNeck') {
-        neckBoneRef.current = node as THREE.Bone;
-        baseNeckRef.current.copy(node.quaternion);
-      }
-      if (name === 'mixamorigHead') {
-        headBoneRef.current = node as THREE.Bone;
-        baseHeadRef.current.copy(node.quaternion);
-      }
+      if ((node as THREE.Bone).isBone) {
+        const bone = node as THREE.Bone;
+        restQuats.set(bone.name, bone.quaternion.clone());
 
-      if (name === 'mixamorigLeftUpLeg') {
-        leftUpLegRef.current = node as THREE.Bone;
-        baseLeftUpLegRef.current.copy(node.quaternion);
-      }
-      if (name === 'mixamorigLeftLeg') {
-        leftLegRef.current = node as THREE.Bone;
-        baseLeftLegRef.current.copy(node.quaternion);
-      }
-      if (name === 'mixamorigLeftFoot') {
-        leftFootRef.current = node as THREE.Bone;
-        baseLeftFootRef.current.copy(node.quaternion);
-      }
+        const cleanName = bone.name.replace('mixamorig:', '').replace('mixamorig', '');
+        const fingerMatch = cleanName.match(/^(LeftHand|RightHand)(Thumb|Index|Middle|Ring|Pinky)([1-3])$/);
+        if (fingerMatch) {
+          fingerBones.push({
+            bone,
+            name: cleanName,
+            finger: fingerMatch[2] as 'Thumb' | 'Index' | 'Middle' | 'Ring' | 'Pinky',
+            joint: parseInt(fingerMatch[3], 10),
+            isThumb: fingerMatch[2] === 'Thumb',
+          });
+        }
 
-      if (name === 'mixamorigRightUpLeg') {
-        rightUpLegRef.current = node as THREE.Bone;
-        baseRightUpLegRef.current.copy(node.quaternion);
+        switch (cleanName) {
+          case 'Hips': bones.hips = bone; break;
+          case 'Spine': bones.spine = bone; break;
+          case 'Spine1': bones.spine1 = bone; break;
+          case 'Spine2':
+            bones.spine2 = bone;
+            bone.add(backMount1);
+            bone.add(backMount2);
+            break;
+          case 'Neck': bones.neck = bone; break;
+          case 'Head': bones.head = bone; break;
+          case 'LeftShoulder': bones.leftShoulder = bone; break;
+          case 'LeftArm': bones.leftArm = bone; break;
+          case 'LeftForeArm': bones.leftForeArm = bone; break;
+          case 'LeftHand': bones.leftHand = bone; break;
+          case 'RightShoulder': bones.rightShoulder = bone; break;
+          case 'RightArm': bones.rightArm = bone; break;
+          case 'RightForeArm': bones.rightForeArm = bone; break;
+          case 'RightHand': bones.rightHand = bone; break;
+          case 'LeftUpLeg': bones.leftUpLeg = bone; break;
+          case 'LeftLeg': bones.leftLeg = bone; break;
+          case 'LeftFoot': bones.leftFoot = bone; break;
+          case 'LeftToeBase': bones.leftToeBase = bone; break;
+          case 'RightUpLeg': bones.rightUpLeg = bone; break;
+          case 'RightLeg': bones.rightLeg = bone; break;
+          case 'RightFoot': bones.rightFoot = bone; break;
+          case 'RightToeBase': bones.rightToeBase = bone; break;
+        }
       }
-      if (name === 'mixamorigRightLeg') {
-        rightLegRef.current = node as THREE.Bone;
-        baseRightLegRef.current.copy(node.quaternion);
-      }
-      if (name === 'mixamorigRightFoot') {
-        rightFootRef.current = node as THREE.Bone;
-        baseRightFootRef.current.copy(node.quaternion);
-      }
-
-      if (name === 'mixamorigRightShoulder') {
-        rightShoulderRef.current = node as THREE.Bone;
-        baseRightShoulderRef.current.copy(node.quaternion);
-      }
-      if (name === 'mixamorigRightArm') rightArmRef.current = node as THREE.Bone;
-      if (name === 'mixamorigRightForeArm') rightForeArmRef.current = node as THREE.Bone;
-      if (name === 'mixamorigRightHand') rightHandRef.current = node as THREE.Bone;
-
-      if (name === 'mixamorigLeftShoulder') {
-        leftShoulderRef.current = node as THREE.Bone;
-        baseLeftShoulderRef.current.copy(node.quaternion);
-      }
-      if (name === 'mixamorigLeftArm') leftArmRef.current = node as THREE.Bone;
-      if (name === 'mixamorigLeftForeArm') leftForeArmRef.current = node as THREE.Bone;
-      if (name === 'mixamorigLeftHand') leftHandRef.current = node as THREE.Bone;
     });
+
+    bones.fingerBones = fingerBones;
+    bonesRef.current = bones;
+    restQuatsRef.current = restQuats;
 
     return () => {
       backMount1.removeFromParent();
@@ -213,701 +211,646 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     };
   }, [cloned, backMount1, backMount2]);
 
-  // Initial animation start
-  useEffect(() => {
-    if (actions['Idle']) {
-      actions['Idle'].play();
-    }
-    return () => {
-      mixer.stopAllAction();
-    };
-  }, [actions, mixer]);
-
-  // Per-frame animation cross-fading, procedural crouch/prone bone adjustments, arm posing, and weapon tracking
+  // Main 60fps Human Animation & Kinematics Frame Loop
   useFrame((_, delta) => {
-    mixer.update(delta);
+    const b = bonesRef.current;
+    const rest = restQuatsRef.current;
+    if (!b.hips || rest.size === 0) return;
 
-    // 1. Physically update root group transform to match authoritative player position & rotation
+    // 1. Authoritative World Position and Rotation from Gameplay Controller
     if (rootGroupRef.current) {
-      rootGroupRef.current.position.set(
-        player.position[0],
-        player.position[1],
-        player.position[2]
-      );
+      rootGroupRef.current.position.set(...player.position);
       rootGroupRef.current.rotation.y = player.rotationY;
     }
 
-    // Smooth continuous stance transition progress
-    const targetCrouch = player.isCrouching && !player.isDead ? 1.0 : 0.0;
-    const targetProne = player.isProne && !player.isDead ? 1.0 : 0.0;
-
-    crouchAmountRef.current = THREE.MathUtils.damp(
-      crouchAmountRef.current,
-      targetCrouch,
-      8.0,
-      delta
-    );
-    proneAmountRef.current = THREE.MathUtils.damp(
-      proneAmountRef.current,
-      targetProne,
-      7.0,
-      delta
-    );
-
-    const crouchT = crouchAmountRef.current;
-    const proneT = proneAmountRef.current;
-
-    // Smooth weapon state transition and ADS aiming interpolation
-    const isSlot1Ready = player.activeSlot === 1 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
-    const isSlot2Ready = player.activeSlot === 2 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
-
-    const targetT1 = isSlot1Ready ? 1.0 : 0.0;
-    const targetT2 = isSlot2Ready ? 1.0 : 0.0;
-
-    transitionProgress1Ref.current = THREE.MathUtils.damp(
-      transitionProgress1Ref.current,
-      targetT1,
-      10.0,
-      delta
-    );
-    transitionProgress2Ref.current = THREE.MathUtils.damp(
-      transitionProgress2Ref.current,
-      targetT2,
-      10.0,
-      delta
-    );
-
-    const t1 = transitionProgress1Ref.current;
-    const t2 = transitionProgress2Ref.current;
-    const tArms = Math.max(t1, t2);
-
-    const targetAim = player.isAiming && player.weaponState === 'ready' && !player.isDead ? 1.0 : 0.0;
-    aimProgressRef.current = THREE.MathUtils.damp(
-      aimProgressRef.current,
-      targetAim,
-      12.0,
-      delta
-    );
-    const at = aimProgressRef.current;
-
-    // Movement speed & crawl cycle calculations
-    const currentPos = new THREE.Vector3(...player.position);
+    // Measure ground velocity and speed
+    const currentPos = _v0.set(...player.position);
     const distMoved = currentPos.distanceTo(prevPosRef.current);
     prevPosRef.current.copy(currentPos);
-    const speed = distMoved / (delta || 0.016);
-    const isMoving = speed > 0.12;
+    const speed = distMoved / Math.max(0.0001, delta);
+    const isMoving = speed > 0.12 && !player.isDead;
+    const isSprinting = player.isSprinting && isMoving && speed > 2.5;
 
-    if (player.isProne && isMoving) {
-      crawlPhaseRef.current += delta * Math.min(speed * 3.8, 8.0);
+    // Locomotion and Sprint smooth blend weights (prevents any pose snapping)
+    locoBlendRef.current = THREE.MathUtils.lerp(locoBlendRef.current, isMoving ? 1.0 : 0.0, Math.min(1, delta * 10));
+    sprintBlendRef.current = THREE.MathUtils.lerp(sprintBlendRef.current, isSprinting ? 1.0 : 0.0, Math.min(1, delta * 8));
+    const locoW = locoBlendRef.current;
+    const sprintW = sprintBlendRef.current;
+
+    // Advance breath and gait timers
+    breathTimeRef.current += delta;
+
+    // Calibrated Human Stride Cadence:
+    // Stride length ~1.65m (walk) expanding to ~2.15m (sprint).
+    // Stride frequency directly matches travel distance to completely eliminate foot sliding/skating.
+    const currentStrideLen = THREE.MathUtils.lerp(5.15, 2.15, sprintW);
+    const gaitFreq = isMoving ? (speed / currentStrideLen) * Math.PI * 2 : 0;
+    gaitPhaseRef.current = (gaitPhaseRef.current + delta * gaitFreq) % (Math.PI * 2);
+    const gp = gaitPhaseRef.current;
+
+    // Pelvis Dynamics:
+    // Vertical bob: 2 cycles per stride, dips during double support, highest at mid-stance
+    const pelvisBob = -Math.cos(gp * 2) * 0.022 * locoW;
+    // Lateral weight transfer over supporting stance leg
+    const pelvisSwayX = Math.sin(gp) * 0.016 * locoW;
+    // Pelvic list / roll
+    const pelvisRollZ = Math.sin(gp) * 0.025 * locoW;
+
+    // Stance transition smoothing: standing (0.0), crouch (1.0), prone (1.0)
+    const targetCrouch = player.isCrouching && !player.isDead ? 1.0 : 0.0;
+    const targetProne = player.isProne && !player.isDead ? 1.0 : 0.0;
+    crouchProgressRef.current = THREE.MathUtils.lerp(crouchProgressRef.current, targetCrouch, delta * 8);
+    proneProgressRef.current = THREE.MathUtils.lerp(proneProgressRef.current, targetProne, delta * 6);
+    const crouchT = crouchProgressRef.current;
+    const proneT = proneProgressRef.current;
+
+    // Weapon state transition smoothing
+    const isSlot1Ready = player.activeSlot === 1 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
+    const isSlot2Ready = player.activeSlot === 2 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
+    weaponTransition1Ref.current = THREE.MathUtils.lerp(weaponTransition1Ref.current, isSlot1Ready ? 1.0 : 0.0, delta * 10);
+    weaponTransition2Ref.current = THREE.MathUtils.lerp(weaponTransition2Ref.current, isSlot2Ready ? 1.0 : 0.0, delta * 10);
+    const t1 = weaponTransition1Ref.current;
+    const t2 = weaponTransition2Ref.current;
+    const tWeapon = Math.max(t1, t2);
+
+    const targetAim = player.isAiming && player.weaponState === 'ready' && !player.isDead ? 1.0 : 0.0;
+    aimProgressRef.current = THREE.MathUtils.lerp(aimProgressRef.current, targetAim, delta * 12);
+    const aimT = aimProgressRef.current;
+
+    // Weapon recoil kick impulse decay
+    if (player.isFiring && !player.isDead) {
+      recoilKickRef.current = Math.min(1.0, recoilKickRef.current + 0.35);
+    } else {
+      recoilKickRef.current = THREE.MathUtils.lerp(recoilKickRef.current, 0.0, delta * 14);
     }
-    const crawlPhase = crawlPhaseRef.current;
+    const kick = recoilKickRef.current;
 
-    // 2. Continuous Character Group Transforms (Pitch, Height, Depth, Roll)
+    // Water states
+    const isInWater = player.waterState === 'swimming' || player.waterState === 'surface' || player.waterState === 'underwater';
+    const isDiving = player.waterState === 'underwater';
+
+    // 2. Character Root Group Placement & Overall Stance Pitch (Native Forward Axis)
     if (characterGroupRef.current) {
       if (player.isDead) {
-        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(
-          characterGroupRef.current.rotation.x,
-          -Math.PI / 2,
-          delta * 8
-        );
-        characterGroupRef.current.rotation.y = Math.PI;
-        characterGroupRef.current.rotation.z = 0;
+        // Natural death pose: smoothly tilt onto back/side
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, -Math.PI / 2, delta * 8);
+        characterGroupRef.current.rotation.y = 0;
         characterGroupRef.current.position.set(0, 0.15, 0);
-      } else if (player.isMantling) {
-        const mp = player.mantleProgress ?? 0;
-        const targetPitch = mp < 0.35 ? 0.15 : mp < 0.75 ? 0.42 : 0.08;
-        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(
-          characterGroupRef.current.rotation.x,
-          targetPitch,
-          delta * 12
-        );
-        characterGroupRef.current.rotation.y = Math.PI;
-        characterGroupRef.current.rotation.z = 0;
+      } else if (isDiving) {
+        // Underwater diving streamlined posture
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, 1.25, delta * 6);
+        characterGroupRef.current.rotation.y = 0;
         characterGroupRef.current.position.set(0, 0, 0);
-      } else if (player.isVaulting) {
-        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(
-          characterGroupRef.current.rotation.x,
-          0.42,
-          delta * 12
-        );
-        characterGroupRef.current.rotation.y = Math.PI;
-        characterGroupRef.current.rotation.z = 0;
+      } else if (isInWater) {
+        // Surface swimming forward pitch
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, 1.35, delta * 6);
+        characterGroupRef.current.rotation.y = 0;
+        characterGroupRef.current.position.set(0, -0.20, 0);
+      } else if (player.isMantling || player.isVaulting) {
+        // Vault / mantle forward push
+        const mp = player.mantleProgress ?? player.vaultProgress ?? 0.5;
+        const mantlePitch = mp < 0.3 ? 0.20 : mp < 0.7 ? 0.45 : 0.10;
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, mantlePitch, delta * 10);
+        characterGroupRef.current.rotation.y = 0;
         characterGroupRef.current.position.set(0, 0, 0);
       } else {
-        // Continuous blend between Standing, Tactical Crouch, and Grounded Military Prone
-        // In Prone: rotation.x = 1.50 (chest/stomach facing ground, back facing upward, head facing forward)
-        const targetRotX = 1.50 * proneT;
-        const targetRotY = Math.PI;
-        const targetRotZ = proneT > 0.05 && isMoving ? Math.sin(crawlPhase) * 0.035 * proneT : 0;
+        // Seamless continuous blend: Standing -> Crouch -> Prone
+        const targetRotX = (Math.PI / 2) * proneT;
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, targetRotX, delta * 8);
+        characterGroupRef.current.rotation.y = 0;
 
-        // In Prone: position.y = 0.08 (torso and legs resting flat against ground), position.z = -0.75 (centers hips in capsule, legs behind)
-        // Crawl locomotion adds subtle vertical bob and lateral hip shift
-        const crawlBob = proneT > 0.05 && isMoving ? Math.abs(Math.sin(crawlPhase * 2)) * 0.015 * proneT : 0;
-        const targetPosY = (0.08 * proneT) + crawlBob + (-0.34 * crouchT * (1.0 - proneT));
-        const targetPosZ = (-0.75 * proneT);
-        const targetPosX = proneT > 0.05 && isMoving ? Math.sin(crawlPhase) * 0.035 * proneT : 0;
+        // Vertical and depth offsets:
+        // TACTICAL CROUCH: hips drop 0.25m and shift back 0.08m to counterbalance forward torso and knees.
+        // Prone lowers torso to 0.10m ground contact and shifts Z by -0.70m to center hips in capsule.
+        const crawlBob = proneT > 0.05 && isMoving ? Math.abs(Math.sin(gp * 2)) * 0.015 * proneT : 0;
+        const targetPosY = (0.10 * proneT) + crawlBob + (-0.15 * crouchT * (1.0 - proneT)) + pelvisBob * (1.0 - proneT);
+        const targetPosZ = (-0.08 * crouchT * (1.0 - proneT)) + (-0.70 * proneT);
+        const targetPosX = (proneT > 0.05 && isMoving ? Math.sin(gp) * 0.03 * proneT : 0) + pelvisSwayX * (1.0 - proneT);
 
-        characterGroupRef.current.rotation.x = targetRotX;
-        characterGroupRef.current.rotation.y = targetRotY;
-        characterGroupRef.current.rotation.z = targetRotZ;
-
-        characterGroupRef.current.position.x = targetPosX;
-        characterGroupRef.current.position.y = targetPosY;
-        characterGroupRef.current.position.z = targetPosZ;
+        characterGroupRef.current.position.set(targetPosX, targetPosY, targetPosZ);
       }
     }
 
-    // 3. Stance Animation Action Cross-fading
-    if (!player.isDead && !player.isVaulting && !player.isMantling) {
-      let desiredAction = 'Idle';
-      if (player.isProne) {
-        if (isMoving) desiredAction = 'Walk';
-        else desiredAction = 'Idle';
-      } else if (player.isCrouching) {
-        if (isMoving) desiredAction = 'Walk';
-        else desiredAction = 'Idle';
-      } else {
-        if (player.isSprinting && speed > 1.0) desiredAction = 'Run';
-        else if (isMoving) desiredAction = 'Walk';
-        else desiredAction = 'Idle';
+    // Helper: Reset a bone to its pristine rest quaternion
+    const resetBone = (bone?: THREE.Bone) => {
+      if (bone && rest.has(bone.name)) {
+        bone.quaternion.copy(rest.get(bone.name)!);
       }
+    };
 
-      if (currentActionRef.current !== desiredAction && actions[desiredAction]) {
-        const from = actions[currentActionRef.current];
-        const to = actions[desiredAction];
-        if (from && to) {
-          to.reset().fadeIn(0.2).play();
-          from.fadeOut(0.2);
-          currentActionRef.current = desiredAction;
-        }
-      }
-    } else if (player.isVaulting || player.isMantling) {
-      if (currentActionRef.current !== 'Run' && actions['Run']) {
-        actions['Run'].reset().fadeIn(0.15).play();
-        if (actions[currentActionRef.current]) actions[currentActionRef.current].fadeOut(0.15);
-        currentActionRef.current = 'Run';
-      }
-    }
-
-    // 4. Procedural Skeletal Adjustments for Tactical Stances (Standing, Crouch, Prone, and ADS Aiming)
-    if (!player.isDead && !player.isVaulting && !player.isMantling) {
-      const cWeight = crouchT * (1.0 - proneT);
-      const sWeight = (1.0 - crouchT) * (1.0 - proneT);
-
-      // A. Real Military Tactical Combat Crouch:
-      // Uses the exact anatomical standing pose as the reference:
-      // Same foot placement + same leg direction -> knees bend forward -> hips lower downward
-      if (cWeight > 0.005) {
-        const applyLegCrouch = (
-          upLeg: THREE.Bone | null,
-          leg: THREE.Bone | null,
-          foot: THREE.Bone | null
-        ) => {
-          if (!upLeg || !leg || !foot) return;
-
-          upLeg.updateWorldMatrix(true, false);
-          leg.updateWorldMatrix(true, false);
-          foot.updateWorldMatrix(true, false);
-
-          const pHip = new THREE.Vector3();
-          const pKnee = new THREE.Vector3();
-          const pFoot = new THREE.Vector3();
-          upLeg.getWorldPosition(pHip);
-          leg.getWorldPosition(pKnee);
-          foot.getWorldPosition(pFoot);
-
-          const vThigh = new THREE.Vector3().subVectors(pKnee, pHip);
-          const vShin = new THREE.Vector3().subVectors(pFoot, pKnee);
-          const hingeAxis = new THREE.Vector3().crossVectors(vThigh, vShin).normalize();
-
-          if (hingeAxis.lengthSq() < 0.5) return;
-
-          const rotBone = (bone: THREE.Bone, angle: number) => {
-            const boneWorldQ = new THREE.Quaternion();
-            bone.getWorldQuaternion(boneWorldQ);
-            const parentWorldQ = new THREE.Quaternion();
-            if (bone.parent) bone.parent.getWorldQuaternion(parentWorldQ);
-
-            const deltaQ = new THREE.Quaternion().setFromAxisAngle(hingeAxis, angle * cWeight);
-            const newBoneWorldQ = deltaQ.multiply(boneWorldQ);
-            bone.quaternion.copy(parentWorldQ.invert().multiply(newBoneWorldQ));
-          };
-
-          // Natural anatomical crouch:
-          // Thigh rotates forward, knee bends downward/backward, ankle flexes so foot remains planted flat
-          rotBone(upLeg, -0.65);
-          rotBone(leg, 1.30);
-          rotBone(foot, -0.65);
-        };
-
-        applyLegCrouch(leftUpLegRef.current, leftLegRef.current, leftFootRef.current);
-        applyLegCrouch(rightUpLegRef.current, rightLegRef.current, rightFootRef.current);
-
-        // Torso balance with natural forward lean
-        if (spineBone0Ref.current && leftShoulderRef.current && rightShoulderRef.current) {
-          leftShoulderRef.current.updateWorldMatrix(true, false);
-          rightShoulderRef.current.updateWorldMatrix(true, false);
-          const pL = new THREE.Vector3(), pR = new THREE.Vector3();
-          leftShoulderRef.current.getWorldPosition(pL);
-          rightShoulderRef.current.getWorldPosition(pR);
-          const shoulderAxis = new THREE.Vector3().subVectors(pL, pR).normalize();
-
-          if (shoulderAxis.lengthSq() > 0.5) {
-            const spinePitch = 0.22 + 0.12 * at; // 0.22 natural combat crouch, 0.34 when aiming
-            const boneWorldQ = new THREE.Quaternion();
-            spineBone0Ref.current.getWorldQuaternion(boneWorldQ);
-            const parentWorldQ = new THREE.Quaternion();
-            if (spineBone0Ref.current.parent) spineBone0Ref.current.parent.getWorldQuaternion(parentWorldQ);
-
-            const deltaQ = new THREE.Quaternion().setFromAxisAngle(shoulderAxis, spinePitch * cWeight);
-            const newBoneWorldQ = deltaQ.multiply(boneWorldQ);
-            spineBone0Ref.current.quaternion.copy(parentWorldQ.invert().multiply(newBoneWorldQ));
-          }
-        }
-
-        // Dedicated cheek weld in crouch aiming
-        if (neckBoneRef.current && at > 0.01) {
-          const crouchCheekWeld = baseNeckRef.current.clone().multiply(
-            new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.16 * at, 0.04 * at, 0.05 * at))
-          );
-          neckBoneRef.current.quaternion.slerp(crouchCheekWeld, cWeight * at);
-        }
-      }
-
-      // B. Standing Combat Aim Pose (Reference Image 4):
-      // Athletic shooting platform: forward spine lean, athletic knee flex, stable shoulder cheek weld
-      if (sWeight > 0.05 && at > 0.005) {
-        const standSpineRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.14 * at);
-        if (spineBone0Ref.current) {
-          const target = baseSpine0Ref.current.clone().multiply(standSpineRot);
-          spineBone0Ref.current.quaternion.slerp(target, sWeight * at);
-        }
-
-        // Subtle athletic knee flex for recoil bracing
-        if (leftLegRef.current && rightLegRef.current) {
-          const kneeFlex = baseLeftLegRef.current.clone().multiply(
-            new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -0.10 * at)
-          );
-          leftLegRef.current.quaternion.slerp(kneeFlex, sWeight * at * 0.7);
-          rightLegRef.current.quaternion.slerp(kneeFlex, sWeight * at * 0.7);
-        }
-
-        // Cheek weld on rifle buttstock
-        if (neckBoneRef.current) {
-          const standCheekWeld = baseNeckRef.current.clone().multiply(
-            new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.12 * at, 0.05 * at, 0.06 * at))
-          );
-          neckBoneRef.current.quaternion.slerp(standCheekWeld, sWeight * at);
-        }
-      }
-
-      // C. Military Prone Pose & Crawl Kinematics (Anchored to base quaternions to prevent drift):
-      // Soldier lies flat on stomach/chest with back facing up.
-      // Legs extend backward, slightly apart (10 deg splay).
-      // When crawling, coordinated military low-crawl (leopard crawl):
-      // Alternate knee pushes outward against ground while opposite arm pulls forward.
-      if (proneT > 0.005) {
-        // Alert head lift so gaze stays oriented toward look/aim direction (higher when aiming)
-        if (neckBoneRef.current) {
-          const proneNeckPitch = THREE.MathUtils.lerp(-0.28, -0.36, at);
-          const headLift = baseNeckRef.current.clone().multiply(
-            new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), proneNeckPitch)
-          );
-          neckBoneRef.current.quaternion.slerp(headLift, proneT);
-        }
-
-        // Base prone leg splay (slightly apart, extending backward)
-        const baseRSplay = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), 0.08);
-        const baseLSplay = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -0.08);
-
-        if (isMoving && player.isProne) {
-          // Continuous alternating low-crawl leg stroke
-          const rPush = Math.max(0, Math.sin(crawlPhase));
-          const lPush = Math.max(0, -Math.sin(crawlPhase));
-
-          // Right leg push: thigh swings outward on Z, knee bends outward on Z against ground
-          const rThighZ = 0.08 + rPush * 0.35;
-          const rKneeZ = rPush * 0.25;
-
-          // Left leg push: thigh swings outward on Z, knee bends outward on Z against ground
-          const lThighZ = -0.08 - lPush * 0.35;
-          const lKneeZ = -lPush * 0.25;
-
-          if (rightUpLegRef.current) {
-            const target = baseRightUpLegRef.current.clone().multiply(
-              new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rThighZ)
-            );
-            rightUpLegRef.current.quaternion.slerp(target, proneT * 0.85);
-          }
-          if (rightLegRef.current) {
-            const target = baseRightLegRef.current.clone().multiply(
-              new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rKneeZ)
-            );
-            rightLegRef.current.quaternion.slerp(target, proneT * 0.85);
-          }
-
-          if (leftUpLegRef.current) {
-            const target = baseLeftUpLegRef.current.clone().multiply(
-              new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), lThighZ)
-            );
-            leftUpLegRef.current.quaternion.slerp(target, proneT * 0.85);
-          }
-          if (leftLegRef.current) {
-            const target = baseLeftLegRef.current.clone().multiply(
-              new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), lKneeZ)
-            );
-            leftLegRef.current.quaternion.slerp(target, proneT * 0.85);
-          }
-        } else {
-          // Stationary prone: legs extend backward naturally resting on the ground
-          if (rightUpLegRef.current) {
-            const target = baseRightUpLegRef.current.clone().multiply(baseRSplay);
-            rightUpLegRef.current.quaternion.slerp(target, proneT * 0.85);
-          }
-          if (rightLegRef.current) {
-            rightLegRef.current.quaternion.slerp(baseRightLegRef.current, proneT * 0.85);
-          }
-
-          if (leftUpLegRef.current) {
-            const target = baseLeftUpLegRef.current.clone().multiply(baseLSplay);
-            leftUpLegRef.current.quaternion.slerp(target, proneT * 0.85);
-          }
-          if (leftLegRef.current) {
-            leftLegRef.current.quaternion.slerp(baseLeftLegRef.current, proneT * 0.85);
-          }
-        }
+    // Reset all core bones to pristine rest baseline before applying this frame's clean human pose
+    resetBone(b.hips);
+    resetBone(b.spine);
+    resetBone(b.spine1);
+    resetBone(b.spine2);
+    resetBone(b.neck);
+    resetBone(b.head);
+    resetBone(b.leftShoulder);
+    resetBone(b.leftArm);
+    resetBone(b.leftForeArm);
+    resetBone(b.leftHand);
+    resetBone(b.rightShoulder);
+    resetBone(b.rightArm);
+    resetBone(b.rightForeArm);
+    resetBone(b.rightHand);
+    resetBone(b.leftUpLeg);
+    resetBone(b.leftLeg);
+    resetBone(b.leftFoot);
+    resetBone(b.leftToeBase);
+    resetBone(b.rightUpLeg);
+    resetBone(b.rightLeg);
+    resetBone(b.rightFoot);
+    resetBone(b.rightToeBase);
+    if (b.fingerBones) {
+      for (let i = 0; i < b.fingerBones.length; i++) {
+        resetBone(b.fingerBones[i].bone);
       }
     }
 
-    // 5. Procedural Arm Posing (Wall Mantle vs Vaulting vs Stance x Aim Matrix vs Prone Support)
-    if (player.isMantling && !player.isDead) {
-      const mp = player.mantleProgress ?? 0;
+    // Dynamic ground placement: calculates actual lowest body/foot contact point and vertically places
+    // the character so that it rests naturally on the existing ground in sitting/crouch, standing, etc.
+    const enforceGroundContact = () => {
+      if (!characterGroupRef.current) return;
+      characterGroupRef.current.updateMatrixWorld(true);
 
-      // Realistic 4-Phase Wall Climb & Mantle Posing:
-      // Phase 1 (0-25%): High Reach - Both hands leap up to grab top edge
-      // Phase 2 (25-40%): Firm Grip & Hang - Hands hold edge, biceps engage
-      // Phase 3 (40-75%): Pull-Up & Muscle Over - Arms push down, chest crests wall
-      // Phase 4 (75-100%): Step Over & Land - Hands release, brace for ground contact
-      let rArmX = 2.25, rArmY = -0.25, rArmZ = 0.15;
-      let lArmX = 2.25, lArmY = 0.25, lArmZ = -0.15;
-      let rForeArmX = 0.30, lForeArmX = 0.30;
-      let rHandX = 0.85, lHandX = 0.85;
+      const contactPoints = [
+        { bone: b.leftFoot, radius: 0.055 },
+        { bone: b.rightFoot, radius: 0.055 },
+        { bone: b.leftToeBase, radius: 0.035 },
+        { bone: b.rightToeBase, radius: 0.035 },
+        { bone: b.leftLeg, radius: 0.075 },
+        { bone: b.rightLeg, radius: 0.075 },
+        { bone: b.leftUpLeg, radius: 0.090 },
+        { bone: b.rightUpLeg, radius: 0.090 },
+        { bone: b.hips, radius: 0.110 },
+        { bone: b.spine, radius: 0.120 },
+        { bone: b.leftForeArm, radius: 0.055 },
+        { bone: b.rightForeArm, radius: 0.055 },
+        { bone: b.leftHand, radius: 0.045 },
+        { bone: b.rightHand, radius: 0.045 },
+      ];
 
-      if (mp < 0.25) {
-        // Leaping & reaching for the top lip
-        rArmX = 2.35; lArmX = 2.35;
-        rForeArmX = 0.25; lForeArmX = 0.25;
-      } else if (mp < 0.40) {
-        // Holding edge firmly
-        rArmX = 2.10; lArmX = 2.10;
-        rForeArmX = 0.65; lForeArmX = 0.65;
-      } else if (mp < 0.75) {
-        // Pressing down onto wall surface to hoist chest up
-        rArmX = 1.15; lArmX = 1.15;
-        rArmY = -0.38; lArmY = 0.38;
-        rForeArmX = 1.10; lForeArmX = 1.10;
-        rHandX = 0.50; lHandX = 0.50;
-      } else {
-        // Releasing edge and preparing for landing
-        rArmX = 0.95; lArmX = 0.95;
-        rForeArmX = 0.55; lForeArmX = 0.55;
-        rHandX = 0.30; lHandX = 0.30;
+      const GROUND_MARGIN = 0.010; // Realistic ground contact margin (1cm)
+      let minDelta = Infinity;
+
+      // 1. Direct bone contact points
+      for (let i = 0; i < contactPoints.length; i++) {
+        const cp = contactPoints[i];
+        if (!cp.bone) continue;
+
+        cp.bone.getWorldPosition(_contactPos);
+        const lowestY = _contactPos.y - cp.radius;
+        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+
+        if (deltaToTarget < minDelta) {
+          minDelta = deltaToTarget;
+        }
       }
 
-      const rightArmMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(rArmX, rArmY, rArmZ));
-      const rightForeArmMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(rForeArmX, 0.1, -0.05));
-      const rightHandMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(rHandX, -0.1, 0.05));
-
-      const leftShoulderMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.25, 0.12, -0.1));
-      const leftArmMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(lArmX, lArmY, lArmZ));
-      const leftForeArmMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(lForeArmX, -0.1, 0.05));
-      const leftHandMantle = new THREE.Quaternion().setFromEuler(new THREE.Euler(lHandX, 0.1, -0.05));
-
-      if (rightArmRef.current) rightArmRef.current.quaternion.slerp(rightArmMantle, 0.88);
-      if (rightForeArmRef.current) rightForeArmRef.current.quaternion.slerp(rightForeArmMantle, 0.88);
-      if (rightHandRef.current) rightHandRef.current.quaternion.slerp(rightHandMantle, 0.88);
-
-      if (leftShoulderRef.current) leftShoulderRef.current.quaternion.slerp(leftShoulderMantle, 0.88);
-      if (leftArmRef.current) leftArmRef.current.quaternion.slerp(leftArmMantle, 0.88);
-      if (leftForeArmRef.current) leftForeArmRef.current.quaternion.slerp(leftForeArmMantle, 0.88);
-      if (leftHandRef.current) leftHandRef.current.quaternion.slerp(leftHandMantle, 0.88);
-
-      // Leg kinematics: tuck right knee high during pull-up to clear wall
-      if (mp >= 0.35 && mp < 0.80) {
-        const pullProgress = (mp - 0.35) / 0.45;
-        const tuckAmt = Math.sin(pullProgress * Math.PI);
-        const rThighRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.95 * tuckAmt, -0.1, 0.15 * tuckAmt));
-        const rKneeRot = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.45 * tuckAmt, 0, 0));
-        if (rightUpLegRef.current) rightUpLegRef.current.quaternion.slerp(rThighRot, 0.75);
-        if (rightLegRef.current) rightLegRef.current.quaternion.slerp(rKneeRot, 0.75);
+      // 2. Calf / shin midpoints (for sitting/kneeling postures where the lower leg rests against ground)
+      if (b.leftLeg && b.leftFoot) {
+        b.leftLeg.getWorldPosition(_contactPos);
+        b.leftFoot.getWorldPosition(_v1);
+        _contactPos.add(_v1).multiplyScalar(0.5);
+        const lowestY = _contactPos.y - 0.065;
+        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+        if (deltaToTarget < minDelta) {
+          minDelta = deltaToTarget;
+        }
       }
-    } else if (player.isVaulting && !player.isDead) {
-      // Both hands reach forward and press onto the top edge of the obstacle to pull body upward
-      const rightArmVault = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.65, -0.35, 0.15));
-      const rightForeArmVault = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.45, 0.1, -0.1));
-      const rightHandVault = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.7, -0.15, 0.1));
-
-      const leftShoulderVault = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.2, 0.15, -0.1));
-      const leftArmVault = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.65, 0.35, -0.15));
-      const leftForeArmVault = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.45, -0.1, 0.1));
-      const leftHandVault = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.7, 0.15, -0.1));
-
-      if (rightArmRef.current) rightArmRef.current.quaternion.slerp(rightArmVault, 0.85);
-      if (rightForeArmRef.current) rightForeArmRef.current.quaternion.slerp(rightForeArmVault, 0.85);
-      if (rightHandRef.current) rightHandRef.current.quaternion.slerp(rightHandVault, 0.85);
-
-      if (leftShoulderRef.current) leftShoulderRef.current.quaternion.slerp(leftShoulderVault, 0.85);
-      if (leftArmRef.current) leftArmRef.current.quaternion.slerp(leftArmVault, 0.85);
-      if (leftForeArmRef.current) leftForeArmRef.current.quaternion.slerp(leftForeArmVault, 0.85);
-      if (leftHandRef.current) leftHandRef.current.quaternion.slerp(leftHandVault, 0.85);
-    } else if (tArms > 0.002 && !player.isDead) {
-      // Weapon Ready Arm Posing: Dedicated Stance x Aim Matrix
-      const isProneArmed = proneT > 0.1;
-      const crawlArmShuffle = isProneArmed && isMoving ? Math.sin(crawlPhase) * 0.10 * proneT : 0;
-
-      // 1. Standing: blend between Low-Ready (Reference Image 2) and Standing-Aim (Reference Image 4) by `at`
-      const stand_rArmX = THREE.MathUtils.lerp(0.95, 1.52, at);
-      const stand_rArmY = THREE.MathUtils.lerp(-0.42, -0.82, at);
-      const stand_rArmZ = THREE.MathUtils.lerp(-0.10, 0.06, at);
-
-      const stand_rForeArmX = THREE.MathUtils.lerp(1.26, 0.96, at);
-      const stand_rForeArmY = THREE.MathUtils.lerp(0.46, 0.58, at);
-      const stand_rForeArmZ = THREE.MathUtils.lerp(-0.04, -0.05, at);
-
-      const stand_lShoulderX = THREE.MathUtils.lerp(0.35, 0.85, at);
-      const stand_lShoulderY = THREE.MathUtils.lerp(0.40, 0.95, at);
-      const stand_lShoulderZ = THREE.MathUtils.lerp(0.15, 0.45, at);
-
-      const stand_lArmX = THREE.MathUtils.lerp(-0.20, -0.62, at);
-      const stand_lArmY = THREE.MathUtils.lerp(0.80, 1.15, at);
-      const stand_lArmZ = THREE.MathUtils.lerp(0.50, 0.72, at);
-
-      const stand_lForeArmX = THREE.MathUtils.lerp(0.35, -0.18, at);
-      const stand_lForeArmY = THREE.MathUtils.lerp(-1.05, -1.42, at);
-      const stand_lForeArmZ = THREE.MathUtils.lerp(-0.35, -0.18, at);
-
-      // 2. Crouch: blend between Crouch-Low-Ready (Reference Image 3) and Crouch-Aim (Reference Image 5) by `at`
-      const crouch_rArmX = THREE.MathUtils.lerp(0.90, 1.50, at);
-      const crouch_rArmY = THREE.MathUtils.lerp(-0.38, -0.80, at);
-      const crouch_rArmZ = THREE.MathUtils.lerp(-0.08, 0.08, at);
-
-      const crouch_rForeArmX = THREE.MathUtils.lerp(1.22, 0.95, at);
-      const crouch_rForeArmY = THREE.MathUtils.lerp(0.42, 0.55, at);
-      const crouch_rForeArmZ = THREE.MathUtils.lerp(-0.04, -0.05, at);
-
-      const crouch_lShoulderX = THREE.MathUtils.lerp(0.30, 0.88, at);
-      const crouch_lShoulderY = THREE.MathUtils.lerp(0.35, 0.98, at);
-      const crouch_lShoulderZ = THREE.MathUtils.lerp(0.12, 0.48, at);
-
-      const crouch_lArmX = THREE.MathUtils.lerp(-0.16, -0.60, at);
-      const crouch_lArmY = THREE.MathUtils.lerp(0.75, 1.12, at);
-      const crouch_lArmZ = THREE.MathUtils.lerp(0.46, 0.70, at);
-
-      const crouch_lForeArmX = THREE.MathUtils.lerp(0.32, -0.16, at);
-      const crouch_lForeArmY = THREE.MathUtils.lerp(-1.02, -1.40, at);
-      const crouch_lForeArmZ = THREE.MathUtils.lerp(-0.32, -0.16, at);
-
-      // 3. Upright: blend between Standing and Crouch with `crouchT`
-      const upright_rArmX = THREE.MathUtils.lerp(stand_rArmX, crouch_rArmX, crouchT);
-      const upright_rArmY = THREE.MathUtils.lerp(stand_rArmY, crouch_rArmY, crouchT);
-      const upright_rArmZ = THREE.MathUtils.lerp(stand_rArmZ, crouch_rArmZ, crouchT);
-
-      const upright_rForeArmX = THREE.MathUtils.lerp(stand_rForeArmX, crouch_rForeArmX, crouchT);
-      const upright_rForeArmY = THREE.MathUtils.lerp(stand_rForeArmY, crouch_rForeArmY, crouchT);
-      const upright_rForeArmZ = THREE.MathUtils.lerp(stand_rForeArmZ, crouch_rForeArmZ, crouchT);
-
-      const upright_lShoulderX = THREE.MathUtils.lerp(stand_lShoulderX, crouch_lShoulderX, crouchT);
-      const upright_lShoulderY = THREE.MathUtils.lerp(stand_lShoulderY, crouch_lShoulderY, crouchT);
-      const upright_lShoulderZ = THREE.MathUtils.lerp(stand_lShoulderZ, crouch_lShoulderZ, crouchT);
-
-      const upright_lArmX = THREE.MathUtils.lerp(stand_lArmX, crouch_lArmX, crouchT);
-      const upright_lArmY = THREE.MathUtils.lerp(stand_lArmY, crouch_lArmY, crouchT);
-      const upright_lArmZ = THREE.MathUtils.lerp(stand_lArmZ, crouch_lArmZ, crouchT);
-
-      const upright_lForeArmX = THREE.MathUtils.lerp(stand_lForeArmX, crouch_lForeArmX, crouchT);
-      const upright_lForeArmY = THREE.MathUtils.lerp(stand_lForeArmY, crouch_lForeArmY, crouchT);
-      const upright_lForeArmZ = THREE.MathUtils.lerp(stand_lForeArmZ, crouch_lForeArmZ, crouchT);
-
-      // 4. Prone Armed: elbows support on ground, weapon cradled above ground
-      const prone_rArmX = THREE.MathUtils.lerp(1.42, 1.46, at) + crawlArmShuffle;
-      const prone_rArmY = THREE.MathUtils.lerp(-0.85, -0.82, at);
-      const prone_rArmZ = THREE.MathUtils.lerp(0.02, 0.04, at);
-
-      const prone_rForeArmX = THREE.MathUtils.lerp(1.02, 1.04, at);
-      const prone_rForeArmY = THREE.MathUtils.lerp(0.60, 0.56, at);
-      const prone_rForeArmZ = THREE.MathUtils.lerp(-0.06, -0.05, at);
-
-      const prone_lShoulderX = 0.95;
-      const prone_lShoulderY = 1.05;
-      const prone_lShoulderZ = 0.50;
-
-      const prone_lArmX = THREE.MathUtils.lerp(-0.55, -0.56, at) - crawlArmShuffle;
-      const prone_lArmY = THREE.MathUtils.lerp(1.05, 1.06, at);
-      const prone_lArmZ = THREE.MathUtils.lerp(0.65, 0.68, at);
-
-      const prone_lForeArmX = THREE.MathUtils.lerp(0.85, 0.88, at);
-      const prone_lForeArmY = THREE.MathUtils.lerp(-0.20, -0.22, at);
-      const prone_lForeArmZ = THREE.MathUtils.lerp(-1.30, -1.28, at);
-
-      // 5. Final continuous blend between Upright and Prone with `proneT`
-      const final_rArmX = THREE.MathUtils.lerp(upright_rArmX, prone_rArmX, proneT);
-      const final_rArmY = THREE.MathUtils.lerp(upright_rArmY, prone_rArmY, proneT);
-      const final_rArmZ = THREE.MathUtils.lerp(upright_rArmZ, prone_rArmZ, proneT);
-
-      const final_rForeArmX = THREE.MathUtils.lerp(upright_rForeArmX, prone_rForeArmX, proneT);
-      const final_rForeArmY = THREE.MathUtils.lerp(upright_rForeArmY, prone_rForeArmY, proneT);
-      const final_rForeArmZ = THREE.MathUtils.lerp(upright_rForeArmZ, prone_rForeArmZ, proneT);
-
-      const final_lShoulderX = THREE.MathUtils.lerp(upright_lShoulderX, prone_lShoulderX, proneT);
-      const final_lShoulderY = THREE.MathUtils.lerp(upright_lShoulderY, prone_lShoulderY, proneT);
-      const final_lShoulderZ = THREE.MathUtils.lerp(upright_lShoulderZ, prone_lShoulderZ, proneT);
-
-      const final_lArmX = THREE.MathUtils.lerp(upright_lArmX, prone_lArmX, proneT);
-      const final_lArmY = THREE.MathUtils.lerp(upright_lArmY, prone_lArmY, proneT);
-      const final_lArmZ = THREE.MathUtils.lerp(upright_lArmZ, prone_lArmZ, proneT);
-
-      const final_lForeArmX = THREE.MathUtils.lerp(upright_lForeArmX, prone_lForeArmX, proneT);
-      const final_lForeArmY = THREE.MathUtils.lerp(upright_lForeArmY, prone_lForeArmY, proneT);
-      const final_lForeArmZ = THREE.MathUtils.lerp(upright_lForeArmZ, prone_lForeArmZ, proneT);
-
-      const rightArmTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(final_rArmX, final_rArmY, final_rArmZ)
-      );
-      const rightForeArmTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(final_rForeArmX, final_rForeArmY, final_rForeArmZ)
-      );
-      const rightHandTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(0.12, -0.18, 0.12)
-      );
-
-      const leftShoulderTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(final_lShoulderX, final_lShoulderY, final_lShoulderZ)
-      );
-      const leftArmTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(final_lArmX, final_lArmY, final_lArmZ)
-      );
-      const leftForeArmTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(final_lForeArmX, final_lForeArmY, final_lForeArmZ)
-      );
-      const leftHandTarget = new THREE.Quaternion().setFromEuler(
-        new THREE.Euler(-0.12, 0.22, -0.18)
-      );
-
-      // Right shoulder tucks back into buttstock pocket when aiming
-      if (rightShoulderRef.current && at > 0.01) {
-        const rShoulderPocket = baseRightShoulderRef.current.clone().multiply(
-          new THREE.Quaternion().setFromEuler(new THREE.Euler(0.08 * at, -0.12 * at, 0.06 * at))
-        );
-        rightShoulderRef.current.quaternion.slerp(rShoulderPocket, tArms * (1.0 - proneT) * at);
+      if (b.rightLeg && b.rightFoot) {
+        b.rightLeg.getWorldPosition(_contactPos);
+        b.rightFoot.getWorldPosition(_v1);
+        _contactPos.add(_v1).multiplyScalar(0.5);
+        const lowestY = _contactPos.y - 0.065;
+        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+        if (deltaToTarget < minDelta) {
+          minDelta = deltaToTarget;
+        }
       }
 
-      if (rightArmRef.current) rightArmRef.current.quaternion.slerp(rightArmTarget, tArms);
-      if (rightForeArmRef.current) rightForeArmRef.current.quaternion.slerp(rightForeArmTarget, tArms);
-      if (rightHandRef.current) rightHandRef.current.quaternion.slerp(rightHandTarget, tArms);
+      if (!isFinite(minDelta)) return;
 
-      if (leftShoulderRef.current) leftShoulderRef.current.quaternion.slerp(leftShoulderTarget, tArms);
-      if (leftArmRef.current) leftArmRef.current.quaternion.slerp(leftArmTarget, tArms);
-      if (leftForeArmRef.current) leftForeArmRef.current.quaternion.slerp(leftForeArmTarget, tArms);
-      if (leftHandRef.current) leftHandRef.current.quaternion.slerp(leftHandTarget, tArms);
-    } else if (proneT > 0.05 && !player.isDead) {
-      // Unarmed Prone: forearms positioned forward on ground supporting upper body
-      // When crawling forward: alternating crawl stroke (contralateral pull)
-      const rPull = isMoving ? Math.max(0, -Math.sin(crawlPhase)) * 0.22 * proneT : 0;
-      const lPull = isMoving ? Math.max(0, Math.sin(crawlPhase)) * 0.22 * proneT : 0;
+      if (player.isGrounded || player.isDead) {
+        // When grounded or dead, vertically place the character so the lowest body/foot contact point rests naturally on the existing ground
+        characterGroupRef.current.position.y -= minDelta;
+        characterGroupRef.current.updateMatrixWorld(true);
+      } else if (minDelta < 0) {
+        // While airborne, only prevent clipping into terrain surfaces
+        characterGroupRef.current.position.y -= minDelta;
+        characterGroupRef.current.updateMatrixWorld(true);
+      }
+    };
 
-      const rArmProne = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.25 + rPull, -0.25, 0.15));
-      const rForeArmProne = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.70, 0.15, -0.10));
-      const rHandProne = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.20, -0.10, 0.05));
-
-      const lShoulderProne = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.15, 0.10, -0.05));
-      const lArmProne = new THREE.Quaternion().setFromEuler(new THREE.Euler(1.25 + lPull, 0.25, -0.15));
-      const lForeArmProne = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.70, -0.15, 0.10));
-      const lHandProne = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.20, 0.10, -0.05));
-
-      if (rightArmRef.current) rightArmRef.current.quaternion.slerp(rArmProne, proneT * 0.85);
-      if (rightForeArmRef.current) rightForeArmRef.current.quaternion.slerp(rForeArmProne, proneT * 0.85);
-      if (rightHandRef.current) rightHandRef.current.quaternion.slerp(rHandProne, proneT * 0.85);
-
-      if (leftShoulderRef.current) leftShoulderRef.current.quaternion.slerp(lShoulderProne, proneT * 0.85);
-      if (leftArmRef.current) leftArmRef.current.quaternion.slerp(lArmProne, proneT * 0.85);
-      if (leftForeArmRef.current) leftForeArmRef.current.quaternion.slerp(lForeArmProne, proneT * 0.85);
-      if (leftHandRef.current) leftHandRef.current.quaternion.slerp(lHandProne, proneT * 0.85);
+    if (player.isDead) {
+      enforceGroundContact();
+      return;
     }
 
-    // 7. Smooth Weapon Socket Interpolation for Slot 1 and Slot 2
-    if (spineBoneRef.current) {
-      backMount1.updateWorldMatrix(true, false);
-      backMount2.updateWorldMatrix(true, false);
+    // Subtle natural pelvic list/roll during gait weight transfer
+    if (b.hips && proneT < 0.5 && !isInWater) {
+      _q0.setFromAxisAngle(Z_AXIS, pelvisRollZ);
+      b.hips.quaternion.multiply(_q0);
+    }
 
-      const backPos1 = new THREE.Vector3();
-      const backQuat1 = new THREE.Quaternion();
-      backMount1.getWorldPosition(backPos1);
-      backMount1.getWorldQuaternion(backQuat1);
+    // 3. Human Spine & Breathing Dynamics
+    const breathCycle = Math.sin(breathTimeRef.current * 1.8);
+    if (b.spine1) {
+      // Subtle natural chest rise and fall during breathing (0.012 rad) + thoracic forward lean in crouch
+      _q0.setFromAxisAngle(X_AXIS, breathCycle * 0.012 * (1.0 - proneT) + 0.18 * crouchT);
+      // Counter-rotation of upper torso opposite to pelvis/stride for natural balance
+      _q1.setFromAxisAngle(Y_AXIS, -Math.sin(gp) * 0.035 * locoW * (1.0 - proneT));
+      _qDelta.multiplyQuaternions(_q0, _q1);
+      b.spine1.quaternion.multiply(_qDelta);
+    }
 
-      const backPos2 = new THREE.Vector3();
-      const backQuat2 = new THREE.Quaternion();
-      backMount2.getWorldPosition(backPos2);
-      backMount2.getWorldQuaternion(backQuat2);
+    // 4. Anatomical Human Locomotion Kinematics (Hips -> Thigh -> Knee -> Ankle -> Foot)
+    if (!isInWater && !player.isVaulting && !player.isMantling && proneT < 0.5) {
+      // Stride amplitude scales smoothly from walking (~0.42 rad) to sprinting (~0.72 rad)
+      const thighAmp = THREE.MathUtils.lerp(0.12, 0.52, sprintW) * locoW;
 
-      // In READY state: weapon transform is calculated directly from the two hands
-      let readyPos = backPos1;
-      let readyQuat = backQuat1;
+      // Bilateral phase offset by PI radians (180 deg)
+      const lPhase = gp;
+      const rPhase = (gp + Math.PI) % (Math.PI * 2);
 
-      if (rightHandRef.current && leftHandRef.current) {
-        rightHandRef.current.updateWorldMatrix(true, false);
-        leftHandRef.current.updateWorldMatrix(true, false);
+      const lSwing = Math.sin(lPhase);
+      const rSwing = Math.sin(rPhase);
+      const lCos = Math.cos(lPhase);
+      const rCos = Math.cos(rPhase);
 
-        const rHandWorld = new THREE.Vector3();
-        const lHandWorld = new THREE.Vector3();
-        rightHandRef.current.getWorldPosition(rHandWorld);
-        leftHandRef.current.getWorldPosition(lHandWorld);
+      // Thigh flexion on local X axis (+X swings thigh forward, -X swings thigh back)
+      const lThighAngle = lSwing * thighAmp;
+      const rThighAngle = rSwing * thighAmp;
 
-        readyPos = rHandWorld;
+      // Subtle forward foot/step placement during swing and landing phase:
+      // FOOT LIFTS -> KNEE BENDS -> FOOT SWINGS FORWARD -> REACHES SLIGHTLY AHEAD -> PLANTS ON GROUND -> BODY PASSES OVER
+      const stepPlacementAmp = THREE.MathUtils.lerp(0.20, 0.18, sprintW) * locoW;
+      const lStepPlacement = Math.max(0, Math.sin(lPhase - 0.5)) * stepPlacementAmp;
+      const rStepPlacement = Math.max(0, Math.sin(rPhase - 0.5)) * stepPlacementAmp;
 
-        // Player forward heading vector
-        const playerHeading = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), player.rotationY);
+      // Anatomical Knee Flexion:
+      // During swing phase (cos > 0), knee flexes deeply to lift foot and clear the ground:
+      // ~1.05 rad (60 deg) for walk, up to 1.35 rad (77 deg) for sprint.
+      // In stance phase (cos <= 0), knee maintains compliant extension (-0.08 rad).
+      const kneeFlexBase = THREE.MathUtils.lerp(1.25, 1.90, sprintW);
+      const lKneeFlex = -0.08 - (lCos > 0 ? Math.pow(lCos, 1.4) * kneeFlexBase : 0) * locoW;
+      const rKneeFlex = -0.08 - (rCos > 0 ? Math.pow(rCos, 1.4) * kneeFlexBase : 0) * locoW;
 
-        // Relaxed Low-Ready Forward (points forward and ~22 deg down across the waist/lap)
-        const lowReadyForward = playerHeading.clone().addScaledVector(new THREE.Vector3(0, -1, 0), 0.36).normalize();
-        const proneLowReady = playerHeading.clone();
-        const effectiveLowReady = proneT > 0.4 ? proneLowReady : lowReadyForward;
+      // Ankle Articulation (dorsiflexion on heel strike, plantarflexion on push-off):
+      const lAnkle = (-lSwing * -0.58 + (lCos > 0.2 ? 0.16 : -0.12 * Math.max(0, -lCos))) * locoW;
+      const rAnkle = (-rSwing * -0.58 + (rCos > 0.2 ? 0.16 : -0.12 * Math.max(0, -rCos))) * locoW;
 
-        // Authoritative Aim Direction toward Screen-Center Camera Aim Target
-        let aimTargetForward: THREE.Vector3;
-        if (player.aimTarget) {
-          const targetVec = new THREE.Vector3(...player.aimTarget);
-          aimTargetForward = new THREE.Vector3().subVectors(targetVec, readyPos).normalize();
-        } else {
-          aimTargetForward = playerHeading.clone();
+      // PUBG tactical combat crouch geometry (independent per-side tuning controls):
+      // Left leg crouch controls:
+      const leftCrouchThigh = 1.86 * crouchT;
+      const leftCrouchKnee = -2.48 * crouchT;
+      const leftCrouchAnkle = 0.58 * crouchT;
+
+      // Right leg crouch controls:
+      const rightCrouchThigh = 0.86 * crouchT;
+      const rightCrouchKnee = -2.58 * crouchT;
+      const rightCrouchAnkle = -0.48 * crouchT;
+
+      const crouchSpine = 0.35 * crouchT;
+
+      // Locomotion swing is suppressed 80% in full crouch so stealth gait doesn't override the crouch pose
+      if (b.leftUpLeg) {
+        _q0.setFromAxisAngle(X_AXIS, (lThighAngle + lStepPlacement) * (1.0 - crouchT * 0.80) + leftCrouchThigh);
+        b.leftUpLeg.quaternion.multiply(_q0);
+      }
+      if (b.rightUpLeg) {
+        _q0.setFromAxisAngle(X_AXIS, (rThighAngle + rStepPlacement) * (1.0 - crouchT * 0.80) + rightCrouchThigh);
+        b.rightUpLeg.quaternion.multiply(_q0);
+      }
+
+      if (b.leftLeg) {
+        _q0.setFromAxisAngle(X_AXIS, lKneeFlex * (1.0 - crouchT * 0.80) + leftCrouchKnee);
+        b.leftLeg.quaternion.multiply(_q0);
+      }
+      if (b.rightLeg) {
+        _q0.setFromAxisAngle(X_AXIS, rKneeFlex * (1.0 - crouchT * 0.80) + rightCrouchKnee);
+        b.rightLeg.quaternion.multiply(_q0);
+      }
+
+      if (b.leftFoot) {
+        _q0.setFromAxisAngle(X_AXIS, lAnkle * (1.0 - crouchT * 0.80) + leftCrouchAnkle);
+        b.leftFoot.quaternion.multiply(_q0);
+      }
+      if (b.rightFoot) {
+        _q0.setFromAxisAngle(X_AXIS, rAnkle * (1.0 - crouchT * 0.80) + rightCrouchAnkle);
+        b.rightFoot.quaternion.multiply(_q0);
+      }
+
+      if (b.spine) {
+        _q0.setFromAxisAngle(X_AXIS, crouchSpine);
+        b.spine.quaternion.multiply(_q0);
+      }
+
+      // Counter-tilt neck in crouch so head stays looking forward alertly along horizon
+      if (b.neck) {
+        _q0.setFromAxisAngle(X_AXIS, -0.30 * crouchT);
+        b.neck.quaternion.multiply(_q0);
+      }
+
+      // In-air jump tuck
+      if (!player.isGrounded) {
+        _q0.setFromAxisAngle(X_AXIS, 0.25);
+        if (b.leftUpLeg) b.leftUpLeg.quaternion.multiply(_q0);
+        if (b.rightUpLeg) b.rightUpLeg.quaternion.multiply(_q0);
+        _q1.setFromAxisAngle(X_AXIS, -0.40);
+        if (b.leftLeg) b.leftLeg.quaternion.multiply(_q1);
+        if (b.rightLeg) b.rightLeg.quaternion.multiply(_q1);
+      }
+    } else if (proneT >= 0.5 && !player.isDead) {
+      // 5. Military Prone Kinematics
+      // Head alertly raised to look forward along sight line
+      if (b.neck) {
+        _q0.setFromAxisAngle(X_AXIS, -0.35 * proneT);
+        b.neck.quaternion.multiply(_q0);
+      }
+
+      // Forearms resting forward on ground
+      if (b.leftForeArm) {
+        _q0.setFromAxisAngle(Z_AXIS, 0.70 * proneT);
+        b.leftForeArm.quaternion.multiply(_q0);
+      }
+      if (b.rightForeArm) {
+        _q0.setFromAxisAngle(Z_AXIS, -0.70 * proneT);
+        b.rightForeArm.quaternion.multiply(_q0);
+      }
+
+      // Prone crawl stride: alternating knee push
+      if (isMoving) {
+        const crawlPush = Math.sin(gp);
+        if (b.leftUpLeg) {
+          _q0.setFromAxisAngle(Z_AXIS, Math.max(0, -crawlPush) * 0.25 * proneT);
+          b.leftUpLeg.quaternion.multiply(_q0);
         }
+        if (b.rightUpLeg) {
+          _q0.setFromAxisAngle(Z_AXIS, Math.max(0, crawlPush) * -0.25 * proneT);
+          b.rightUpLeg.quaternion.multiply(_q0);
+        }
+      }
+    } else if (isInWater) {
+      // 6. Natural Human Swimming Kinematics
+      const swimPhase = (breathTimeRef.current * 4.5) % (Math.PI * 2);
+      const kickL = Math.sin(swimPhase) * 0.35;
+      const kickR = -kickL;
 
-        // Smooth continuous transition from Low-Ready carry to ADS Aim Target
-        const aimFactor = Math.max(at, player.isFiring ? 1.0 : 0.0);
-        const weaponForward = new THREE.Vector3().lerpVectors(effectiveLowReady, aimTargetForward, aimFactor).normalize();
+      if (b.leftUpLeg) {
+        _q0.setFromAxisAngle(X_AXIS, kickL);
+        b.leftUpLeg.quaternion.multiply(_q0);
+      }
+      if (b.rightUpLeg) {
+        _q0.setFromAxisAngle(X_AXIS, kickR);
+        b.rightUpLeg.quaternion.multiply(_q0);
+      }
+      if (b.leftLeg) {
+        _q0.setFromAxisAngle(X_AXIS, -Math.max(0, -kickL) * 0.5);
+        b.leftLeg.quaternion.multiply(_q0);
+      }
+      if (b.rightLeg) {
+        _q0.setFromAxisAngle(X_AXIS, -Math.max(0, -kickR) * 0.5);
+        b.rightLeg.quaternion.multiply(_q0);
+      }
+    }
 
-        const worldUp = new THREE.Vector3(0, 1, 0);
-        const weaponRight = new THREE.Vector3().crossVectors(worldUp, weaponForward).normalize();
-        const weaponUp = new THREE.Vector3().crossVectors(weaponForward, weaponRight).normalize();
+    // 7. Human Shoulder and Arm Posing (Contralateral Locomotion Counter-Swing vs Weapon Hold)
+    if (tWeapon < 0.999 && proneT < 0.5 && !isInWater && !player.isVaulting && !player.isMantling) {
+      const unarmWeight = 1.0 - tWeapon;
 
-        const readyMat = new THREE.Matrix4().makeBasis(weaponRight, weaponUp, weaponForward);
-        readyQuat = new THREE.Quaternion().setFromRotationMatrix(readyMat);
+      // Locomotion arm swing amplitude (walk ~0.30 rad, sprint ~0.60 rad)
+      const armSwingAmp = THREE.MathUtils.lerp(0.30, 0.60, sprintW) * locoW;
+      const elbowSwingAmp = THREE.MathUtils.lerp(0.10, 0.25, sprintW) * locoW;
 
-        // Record exact world muzzle position for authoritative bullet tracer origin (0.67m down barrel)
-        const muzzlePos = new THREE.Vector3().copy(readyPos).addScaledVector(weaponForward, 0.67);
-        player.muzzlePos = [muzzlePos.x, muzzlePos.y, muzzlePos.z];
+      // Natural Contralateral Arm Swing:
+      // Left leg phase is gp. When left leg swings forward (sin(gp) > 0),
+      // Left arm swings BACKWARD, Right arm swings FORWARD.
+      // In the human rig coordinate system:
+      // For LeftArm: +Z is forward swing, -Z is backward swing.
+      // For RightArm: -Z is forward swing, +Z is backward swing.
+      const lArmSwing = -Math.sin(gp) * armSwingAmp;
+      const rArmSwing = -Math.sin(gp) * armSwingAmp;
+
+      const lElbowSwing = Math.sin(gp + Math.PI) * elbowSwingAmp;
+      const rElbowSwing = Math.sin(gp) * elbowSwingAmp;
+
+      // Subtle shoulder / clavicle counter-tilt
+      if (b.leftShoulder) {
+        _q0.setFromAxisAngle(Z_AXIS, -lArmSwing * 0.10 * unarmWeight);
+        b.leftShoulder.quaternion.multiply(_q0);
+      }
+      if (b.rightShoulder) {
+        _q0.setFromAxisAngle(Z_AXIS, -rArmSwing * 0.10 * unarmWeight);
+        b.rightShoulder.quaternion.multiply(_q0);
       }
 
-      // Slot 1 weapon positioning: backMount1 <-> ready hands
-      if (weaponSocket1Ref.current) {
-        weaponSocket1Ref.current.position.lerpVectors(backPos1, readyPos, t1);
-        weaponSocket1Ref.current.quaternion.slerpQuaternions(backQuat1, readyQuat, t1);
+      // Upper Arms: independent left and right crouch controls
+      const leftArmCrouchX = (0.48 - 0.12 * crouchT) * unarmWeight;
+      const rightArmCrouchX = (0.48 - 0.12 * crouchT) * unarmWeight;
+
+      const leftElbowCrouch = 0.35 * crouchT;
+      const rightElbowCrouch = 0.35 * crouchT;
+
+      if (b.leftArm) {
+        _q0.setFromAxisAngle(X_AXIS, leftArmCrouchX);
+        _q1.setFromAxisAngle(Z_AXIS, lArmSwing * unarmWeight);
+        _qDelta.multiplyQuaternions(_q0, _q1);
+        b.leftArm.quaternion.multiply(_qDelta);
       }
 
-      // Slot 2 weapon positioning: backMount2 <-> ready hands
-      if (weaponSocket2Ref.current) {
-        weaponSocket2Ref.current.position.lerpVectors(backPos2, readyPos, t2);
-        weaponSocket2Ref.current.quaternion.slerpQuaternions(backQuat2, readyQuat, t2);
+      if (b.rightArm) {
+        _q0.setFromAxisAngle(X_AXIS, rightArmCrouchX);
+        _q1.setFromAxisAngle(Z_AXIS, rArmSwing * unarmWeight);
+        _qDelta.multiplyQuaternions(_q0, _q1);
+        b.rightArm.quaternion.multiply(_qDelta);
       }
+
+      // Forearms / Elbows: relaxed natural bend, flexes forward in crouch for tactical ready posture
+      const sprintElbowBend = THREE.MathUtils.lerp(0.0, -1.20, sprintW);
+
+      // Left ForeArm: +Z flexes elbow forward
+      const lElbowFlex = (-0.20 - sprintElbowBend + leftElbowCrouch + Math.max(0, lArmSwing) * 0.35 + lElbowSwing) * unarmWeight;
+      if (b.leftForeArm) {
+        _q0.setFromAxisAngle(Z_AXIS, lElbowFlex);
+        b.leftForeArm.quaternion.multiply(_q0);
+      }
+
+      // Right ForeArm: -Z flexes elbow forward
+      const rElbowFlex = (0.20 + sprintElbowBend - rightElbowCrouch - Math.max(0, -rArmSwing) * 0.35 + rElbowSwing) * unarmWeight;
+      if (b.rightForeArm) {
+        _q0.setFromAxisAngle(Z_AXIS, rElbowFlex);
+        b.rightForeArm.quaternion.multiply(_q0);
+      }
+
+      // Wrists / Hands: remain naturally attached, softly follow forearm swing with relaxed fingers
+      if (b.leftHand) {
+        _q0.setFromAxisAngle(Z_AXIS, lArmSwing * 0.15 * unarmWeight);
+        b.leftHand.quaternion.multiply(_q0);
+      }
+      if (b.rightHand) {
+        _q0.setFromAxisAngle(Z_AXIS, rArmSwing * 0.15 * unarmWeight);
+        b.rightHand.quaternion.multiply(_q0);
+      }
+
+      // Natural running fist: progressively curls finger bones into a closed fist when sprinting
+      if (sprintW > 0.001 && b.fingerBones) {
+        const fistWeight = sprintW * unarmWeight;
+
+        // Finalized fist curl values (curl rotation around X_AXIS)
+        // Joint 1: proximal (base knuckle), Joint 2: intermediate, Joint 3: distal (tip)
+        const thumbCurl1 = 0.15;
+        const thumbCurl2 = -0.35;
+        const thumbCurl3 = 0.10;
+
+        const indexCurl1 = 1.15;
+        const indexCurl2 = 1.35;
+        const indexCurl3 = 1.05;
+
+        const middleCurl1 = 1.15;
+        const middleCurl2 = 1.35;
+        const middleCurl3 = 1.05;
+
+        const ringCurl1 = 1.15;
+        const ringCurl2 = 1.35;
+        const ringCurl3 = 1.05;
+
+        const pinkyCurl1 = 1.15;
+        const pinkyCurl2 = 1.35;
+        const pinkyCurl3 = 1.05;
+
+        for (let i = 0; i < b.fingerBones.length; i++) {
+          const fb = b.fingerBones[i];
+          let curl = 0;
+          if (fb.finger === 'Thumb') {
+            curl = fb.joint === 1 ? thumbCurl1 : fb.joint === 2 ? thumbCurl2 : thumbCurl3;
+          } else if (fb.finger === 'Index') {
+            curl = fb.joint === 1 ? indexCurl1 : fb.joint === 2 ? indexCurl2 : indexCurl3;
+          } else if (fb.finger === 'Middle') {
+            curl = fb.joint === 1 ? middleCurl1 : fb.joint === 2 ? middleCurl2 : middleCurl3;
+          } else if (fb.finger === 'Ring') {
+            curl = fb.joint === 1 ? ringCurl1 : fb.joint === 2 ? ringCurl2 : ringCurl3;
+          } else if (fb.finger === 'Pinky') {
+            curl = fb.joint === 1 ? pinkyCurl1 : fb.joint === 2 ? pinkyCurl2 : pinkyCurl3;
+          }
+          _q0.setFromAxisAngle(X_AXIS, curl * fistWeight);
+          fb.bone.quaternion.multiply(_q0);
+        }
+      }
+    }
+
+    // 8. Authentic Two-Handed Tactical Weapon Pose
+    if (tWeapon > 0.001 && proneT < 0.5 && !player.isDead) {
+      // Right Arm: Raises to shoulder pocket, hand grips weapon handle & trigger
+      if (b.rightShoulder) {
+        _q0.setFromAxisAngle(Z_AXIS, 0.15 * tWeapon);
+        b.rightShoulder.quaternion.multiply(_q0);
+      }
+      if (b.rightArm) {
+        _q0.setFromAxisAngle(X_AXIS, 0.65 * tWeapon + 0.15 * aimT);
+        _q1.setFromAxisAngle(Z_AXIS, 0.28 * tWeapon);
+        _qDelta.multiplyQuaternions(_q0, _q1);
+        b.rightArm.quaternion.multiply(_qDelta);
+      }
+      if (b.rightForeArm) {
+        _q0.setFromAxisAngle(X_AXIS, 0.85 * tWeapon + 0.10 * aimT);
+        b.rightForeArm.quaternion.multiply(_q0);
+      }
+      if (b.rightHand) {
+        _q0.setFromAxisAngle(Y_AXIS, -0.30 * tWeapon);
+        b.rightHand.quaternion.multiply(_q0);
+      }
+
+      // Left Arm: Reaches across torso to cradle front handguard / foregrip
+      if (b.leftShoulder) {
+        _q0.setFromAxisAngle(Z_AXIS, -0.15 * tWeapon);
+        b.leftShoulder.quaternion.multiply(_q0);
+      }
+      if (b.leftArm) {
+        _q0.setFromAxisAngle(X_AXIS, 0.55 * tWeapon + 0.12 * aimT);
+        _q1.setFromAxisAngle(Z_AXIS, -0.45 * tWeapon);
+        _qDelta.multiplyQuaternions(_q0, _q1);
+        b.leftArm.quaternion.multiply(_qDelta);
+      }
+      if (b.leftForeArm) {
+        _q0.setFromAxisAngle(X_AXIS, 0.95 * tWeapon + 0.10 * aimT);
+        b.leftForeArm.quaternion.multiply(_q0);
+      }
+      if (b.leftHand) {
+        _q0.setFromAxisAngle(Y_AXIS, 0.35 * tWeapon);
+        b.leftHand.quaternion.multiply(_q0);
+      }
+    }
+
+    // 8.5 Global Ground Clearance & Surface Contact Enforcement
+    // Ensures no body part (feet, knees, hands, pelvis, torso, head) ever penetrates the ground
+    enforceGroundContact();
+
+    // 9. Weapon Socket Positioning (Smooth transition between Upper Back Holster and Ready Hands)
+    const backPos1 = _v1;
+    const backQuat1 = _q1;
+    const backPos2 = _v2;
+    const backQuat2 = _q2;
+
+    backMount1.updateWorldMatrix(true, false);
+    backMount2.updateWorldMatrix(true, false);
+    backMount1.getWorldPosition(backPos1);
+    backMount1.getWorldQuaternion(backQuat1);
+    backMount2.getWorldPosition(backPos2);
+    backMount2.getWorldQuaternion(backQuat2);
+
+    // Compute ready weapon position in front of chest / sightline
+    const worldUp = Y_AXIS;
+    const playerHeading = _v0.set(0, 0, 1).applyAxisAngle(worldUp, player.rotationY);
+    const playerRight = _v1.set(1, 0, 0).applyAxisAngle(worldUp, player.rotationY);
+
+    const rArmPos = new THREE.Vector3();
+    if (b.rightArm) {
+      b.rightArm.updateWorldMatrix(true, false);
+      b.rightArm.getWorldPosition(rArmPos);
+    } else {
+      rArmPos.set(...player.position).addScaledVector(worldUp, 1.4);
+    }
+
+    // Aim direction or low-ready forward
+    let weaponForward = playerHeading.clone();
+    if (player.aimTarget) {
+      const aimTargetVec = new THREE.Vector3(...player.aimTarget);
+      weaponForward.subVectors(aimTargetVec, rArmPos).normalize();
+    }
+    const weaponRight = new THREE.Vector3().crossVectors(worldUp, weaponForward).normalize();
+    const weaponUp = new THREE.Vector3().crossVectors(weaponForward, weaponRight).normalize();
+    const readyMat = new THREE.Matrix4().makeBasis(weaponRight, weaponUp, weaponForward);
+    const readyQuat = new THREE.Quaternion().setFromRotationMatrix(readyMat);
+
+    // Physical position in front of dominant shoulder
+    const readyPos = rArmPos.clone()
+      .addScaledVector(weaponForward, 0.22 + 0.05 * aimT)
+      .addScaledVector(worldUp, -0.06 + 0.06 * aimT)
+      .addScaledVector(playerRight, -0.04);
+
+    // Recoil kick impulse displacement
+    if (kick > 0.001) {
+      readyPos.addScaledVector(weaponForward, -0.035 * kick);
+      readyPos.addScaledVector(worldUp, 0.015 * kick);
+      readyQuat.multiply(new THREE.Quaternion().setFromAxisAngle(weaponRight, -0.04 * kick));
+    }
+
+    // Authoritative muzzle tracer origin
+    const muzzlePos = readyPos.clone().addScaledVector(weaponForward, 0.65);
+    player.muzzlePos = [muzzlePos.x, muzzlePos.y, muzzlePos.z];
+
+    // Smoothly interpolate Weapon Sockets
+    if (weaponSocket1Ref.current) {
+      weaponSocket1Ref.current.position.lerpVectors(backPos1, readyPos, t1);
+      weaponSocket1Ref.current.quaternion.slerpQuaternions(backQuat1, readyQuat, t1);
+    }
+    if (weaponSocket2Ref.current) {
+      weaponSocket2Ref.current.position.lerpVectors(backPos2, readyPos, t2);
+      weaponSocket2Ref.current.quaternion.slerpQuaternions(backQuat2, readyQuat, t2);
     }
   });
 
@@ -916,15 +859,14 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
   // Visual health percentage
   const hpPercent = Math.max(0, Math.min(100, (player.health / 100) * 100));
-  const hpColor =
-    hpPercent > 60 ? '#10b981' : hpPercent > 30 ? '#f59e0b' : '#ef4444';
+  const hpColor = hpPercent > 60 ? '#10b981' : hpPercent > 30 ? '#f59e0b' : '#ef4444';
 
   return (
     <>
       {/* 3D Root Group physically positioned and rotated every frame */}
       <group ref={rootGroupRef}>
-        {/* Character mesh assembly - rotated Math.PI so back faces camera */}
-        <group ref={characterGroupRef} rotation={[0, Math.PI, 0]}>
+        {/* Character mesh assembly oriented along native forward facing axis */}
+        <group ref={characterGroupRef} rotation={[0, 0, 0]}>
           <primitive
             object={cloned}
             scale={[1.0, 1.0, 1.0]}
@@ -934,7 +876,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
         {/* Compact Tactical Overhead Health Indicator */}
         <Html
-          position={[0, player.isDead ? 0.35 : player.isProne ? 0.65 : player.isCrouching ? 1.5 : 2.05, 0]}
+          position={[0, player.isDead ? 0.35 : player.isProne ? 0.50 : player.isCrouching ? 1.50 : 2.05, 0]}
           center
           style={{ pointerEvents: 'none', userSelect: 'none' }}
         >
@@ -1020,4 +962,4 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
   );
 };
 
-useGLTF.preload('/models/Soldier.glb');
+useGLTF.preload('/models/player/human_male.glb');

@@ -45,6 +45,8 @@ export interface PlayerState {
   vaultProgress?: number; // 0.0 to 1.0 during active vault
   mantleProgress?: number; // 0.0 to 1.0 during active wall climb/mantle
   isGrounded: boolean;
+  waterState?: 'land' | 'wading' | 'swimming' | 'surface' | 'underwater';
+  swimDepth?: number;
   aimTarget?: [number, number, number];
   muzzlePos?: [number, number, number];
   color: string;
@@ -70,6 +72,17 @@ export interface BulletTracer {
   hitPlayerId: PlayerId | null;
   timestamp: number;
   color: string;
+}
+
+export interface BulletImpactDecal {
+  id: string;
+  position: [number, number, number];
+  normal: [number, number, number];
+  surfaceType: 'concrete' | 'metal' | 'wood' | 'stone' | 'ground';
+  timestamp: number;
+  rotationZ: number;
+  variant?: number;
+  scale?: number;
 }
 
 export interface MatchState {

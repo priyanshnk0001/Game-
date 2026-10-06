@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useGameState } from '../../hooks/useGameState';
 import { MAPS } from '../../config/maps';
-import { X, Navigation, Crosshair } from 'lucide-react';
+import { WorldObjectRegistry } from '../../game/world/WorldObjectRegistry';
+import { TacticalWorldObject, TacticalLinearFeature, TacticalPOI } from './TacticalMapElements';
+import { X, Navigation } from 'lucide-react';
 
 interface LargeMapModalProps {
   isOpen: boolean;
@@ -46,9 +48,17 @@ export const LargeMapModal: React.FC<LargeMapModalProps> = ({ isOpen, onClose })
     return () => cancelAnimationFrame(animId);
   }, [isOpen, localPlayer]);
 
+  // Listen to WorldObjectRegistry dynamic modifications
+  const [, setRegistryTick] = useState(0);
+  useEffect(() => {
+    return WorldObjectRegistry.subscribe(() => {
+      setRegistryTick((t) => t + 1);
+    });
+  }, []);
+
   const mapId = state.activeMapId || 'battle-area';
   const mapDef = MAPS[mapId] || MAPS['battle-area'];
-  const bounds = mapDef.bounds;
+  const mapData = useMemo(() => WorldObjectRegistry.getWorldMapData(mapId), [mapId]);
 
   // Listen for ESC or 'M' key to close
   useEffect(() => {
@@ -65,8 +75,7 @@ export const LargeMapModal: React.FC<LargeMapModalProps> = ({ isOpen, onClose })
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
-
+  const bounds = mapData.bounds;
   const rangeX = bounds.maxX - bounds.minX;
   const rangeZ = bounds.maxZ - bounds.minZ;
 
@@ -82,6 +91,19 @@ export const LargeMapModal: React.FC<LargeMapModalProps> = ({ isOpen, onClose })
   const forwardZ = Math.cos(localPlayer.rotationY);
   const headingDeg = (Math.atan2(forwardX, -forwardZ) * 180) / Math.PI;
   const compassHDG = Math.round(((headingDeg % 360) + 360) % 360);
+
+  // Large Map Scale: 200 SVG units across rangeX
+  const scale = 200 / rangeX;
+
+  // World-to-Map projection for Large Map
+  const project = useCallback(
+    (wx: number, wz: number): [number, number] => {
+      return [((wx - bounds.minX) / rangeX) * 200, ((wz - bounds.minZ) / rangeZ) * 200];
+    },
+    [bounds.minX, bounds.minZ, rangeX, rangeZ]
+  );
+
+  if (!isOpen) return null;
 
   return (
     <div
@@ -148,7 +170,15 @@ export const LargeMapModal: React.FC<LargeMapModalProps> = ({ isOpen, onClose })
                   {mapDef.sectorCode}
                 </span>
                 <span style={{ color: '#475569' }}>|</span>
-                <span style={{ fontSize: '14px', fontWeight: 900, color: '#ffffff', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                <span
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 900,
+                    color: '#ffffff',
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                  }}
+                >
                   {mapDef.name}
                 </span>
               </div>
@@ -170,9 +200,15 @@ export const LargeMapModal: React.FC<LargeMapModalProps> = ({ isOpen, onClose })
                 border: '1px solid rgba(51, 65, 85, 0.6)',
               }}
             >
-              <span>X: <strong style={{ color: '#f8fafc' }}>{clampX.toFixed(1)}m</strong></span>
-              <span>Z: <strong style={{ color: '#f8fafc' }}>{clampZ.toFixed(1)}m</strong></span>
-              <span style={{ color: '#38bdf8' }}>HDG: <strong>{compassHDG}°</strong></span>
+              <span>
+                X: <strong style={{ color: '#f8fafc' }}>{clampX.toFixed(1)}m</strong>
+              </span>
+              <span>
+                Z: <strong style={{ color: '#f8fafc' }}>{clampZ.toFixed(1)}m</strong>
+              </span>
+              <span style={{ color: '#38bdf8' }}>
+                HDG: <strong>{compassHDG}°</strong>
+              </span>
             </div>
 
             <button
@@ -259,146 +295,74 @@ export const LargeMapModal: React.FC<LargeMapModalProps> = ({ isOpen, onClose })
               <circle cx="100" cy="100" r="60" fill="none" stroke="rgba(56, 189, 248, 0.14)" strokeWidth="0.8" />
               <circle cx="100" cy="100" r="90" fill="none" stroke="rgba(56, 189, 248, 0.1)" strokeWidth="0.8" />
 
-              {/* COMPLETE BATTLE AREA LAYOUT */}
-              {mapId === 'battle-area' && (
-                <g id="large-battle-area-geometry">
-                  {/* Tarmac Runways */}
-                  <rect x="3" y="87.5" width="194" height="25" fill="#141d2c" />
-                  <line x1="6" y1="100" x2="194" y2="100" stroke="#334155" strokeWidth="1" strokeDasharray="5,4" />
+              {/* Linear Features (Roads, Rivers) from Single Source of Truth */}
+              {mapData.linearFeatures.map((feat) => (
+                <TacticalLinearFeature key={feat.id} feature={feat} project={project} scale={scale} />
+              ))}
 
-                  <rect x="87.5" y="3" width="25" height="194" fill="#141d2c" />
-                  <line x1="100" y1="6" x2="100" y2="194" stroke="#334155" strokeWidth="1" strokeDasharray="5,4" />
+              {/* Actual World Objects from Single Source of Truth */}
+              {mapData.objects.map((obj) => (
+                <TacticalWorldObject key={obj.id} object={obj} project={project} scale={scale} />
+              ))}
 
-                  {/* Central Depot */}
-                  <circle cx="100" cy="100" r="26" fill="#172233" stroke="#334155" strokeWidth="1" />
-                  <rect x="97" y="97" width="6" height="6" fill="#047857" stroke="#34d399" strokeWidth="0.8" rx="0.8" />
-                  <text x="100" y="108" fill="#34d399" fontSize="5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">DEPOT</text>
+              {/* Outer Perimeter Wall Boundary */}
+              <rect
+                x="2"
+                y="2"
+                width="196"
+                height="196"
+                fill="none"
+                stroke="rgba(56, 189, 248, 0.75)"
+                strokeWidth="1.8"
+              />
 
-                  {/* Command Bunker Shoot House */}
-                  <g id="large-cmd">
-                    <rect x="28.5" y="49" width="28.5" height="27" fill="#1e293b" stroke="#06b6d4" strokeWidth="1.4" rx="1.5" />
-                    <rect x="31" y="52" width="10" height="9" fill="#0f172a" stroke="#475569" strokeWidth="0.8" />
-                    <text x="42.7" y="65" fill="#e2e8f0" fontSize="6.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">COMMAND</text>
-                  </g>
+              {/* Tactical POI Labels */}
+              {mapData.pois.map((poi) => (
+                <TacticalPOI key={poi.id} poi={poi} project={project} />
+              ))}
 
-                  {/* Observation Shoot House */}
-                  <g id="large-obs">
-                    <rect x="143" y="124" width="28.5" height="27" fill="#1e293b" stroke="#06b6d4" strokeWidth="1.4" rx="1.5" />
-                    <rect x="159" y="139" width="10" height="9" fill="#0f172a" stroke="#475569" strokeWidth="0.8" />
-                    <text x="157.2" y="140" fill="#e2e8f0" fontSize="6.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">OBSERVATION</text>
-                  </g>
-
-                  {/* Shipping Containers */}
-                  <g transform="translate(67.8, 67.8) rotate(11.5)">
-                    <rect x="-11.6" y="-4.5" width="23.2" height="8.9" fill="#1e3a5f" stroke="#38bdf8" strokeWidth="1.2" rx="1" />
-                    <text x="0" y="2.5" fill="#e0f2fe" fontSize="5.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">CONTAINER A</text>
-                  </g>
-                  <g transform="translate(132.2, 132.2) rotate(-11.5)">
-                    <rect x="-11.6" y="-4.5" width="23.2" height="8.9" fill="#7c2d12" stroke="#fb923c" strokeWidth="1.2" rx="1" />
-                    <text x="0" y="2.5" fill="#ffedd5" fontSize="5.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">CONTAINER B</text>
-                  </g>
-
-                  {/* Barriers */}
-                  <rect x="94.3" y="87" width="11.4" height="2.5" fill="#64748b" stroke="#cbd5e1" strokeWidth="0.8" rx="0.5" />
-                  <rect x="94.3" y="110" width="11.4" height="2.5" fill="#64748b" stroke="#cbd5e1" strokeWidth="0.8" rx="0.5" />
-                  <g transform="translate(76.8, 130.3) rotate(45)"><rect x="-5.7" y="-1.25" width="11.4" height="2.5" fill="#64748b" stroke="#cbd5e1" strokeWidth="0.8" rx="0.5" /></g>
-                  <g transform="translate(123.2, 69.6) rotate(45)"><rect x="-5.7" y="-1.25" width="11.4" height="2.5" fill="#64748b" stroke="#cbd5e1" strokeWidth="0.8" rx="0.5" /></g>
-                  <g transform="translate(62.5, 83.9) rotate(-30)"><rect x="-5.7" y="-1.25" width="11.4" height="2.5" fill="#64748b" stroke="#cbd5e1" strokeWidth="0.8" rx="0.5" /></g>
-                  <g transform="translate(137.5, 116.1) rotate(-30)"><rect x="-5.7" y="-1.25" width="11.4" height="2.5" fill="#64748b" stroke="#cbd5e1" strokeWidth="0.8" rx="0.5" /></g>
-
-                  {/* Sandbags */}
-                  <g transform="translate(83.9, 105.3) rotate(90)"><rect x="-4.6" y="-1.5" width="9.3" height="3.0" fill="#a16207" stroke="#fde047" strokeWidth="0.8" rx="1.5" /></g>
-                  <g transform="translate(116.1, 94.6) rotate(-90)"><rect x="-4.6" y="-1.5" width="9.3" height="3.0" fill="#a16207" stroke="#fde047" strokeWidth="0.8" rx="1.5" /></g>
-                  <rect x="52.5" y="120" width="9.3" height="3.0" fill="#a16207" stroke="#fde047" strokeWidth="0.8" rx="1.5" />
-                  <rect x="138.2" y="77" width="9.3" height="3.0" fill="#a16207" stroke="#fde047" strokeWidth="0.8" rx="1.5" />
-                </g>
-              )}
-
-              {mapId === 'jungle-ops' && (
-                <g id="large-jungle-geometry">
-                  <path d="M 15 100 Q 60 90 100 100 T 185 100" stroke="#2a1f16" strokeWidth="18" fill="none" />
-                  <path d="M 100 15 Q 90 60 100 100 T 100 185" stroke="#2a1f16" strokeWidth="18" fill="none" />
-                  <rect x="90" y="90" width="20" height="20" fill="#2d4a34" stroke="#4ade80" strokeWidth="1.4" rx="2" />
-                  <text x="100" y="102" fill="#86efac" fontSize="6" fontFamily="monospace" fontWeight="bold" textAnchor="middle">ANCIENT SHRINE</text>
-                  <circle cx="64" cy="64" r="9" fill="#384937" stroke="#86efac" strokeWidth="1" />
-                  <circle cx="136" cy="136" r="9.5" fill="#384937" stroke="#86efac" strokeWidth="1" />
-                  <rect x="31" y="49" width="18" height="18" fill="#4a3728" stroke="#a16207" strokeWidth="1.2" rx="1.5" />
-                  <text x="40" y="60" fill="#fef08a" fontSize="5.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">WEST TOWER</text>
-                  <rect x="151" y="133" width="18" height="18" fill="#4a3728" stroke="#a16207" strokeWidth="1.2" rx="1.5" />
-                  <text x="160" y="144" fill="#fef08a" fontSize="5.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">EAST TOWER</text>
-                </g>
-              )}
-
-              {mapId === 'snow-ops' && (
-                <g id="large-snow-geometry">
-                  <polygon points="80,90 120,80 130,120 90,125" fill="rgba(125, 211, 252, 0.45)" stroke="#38bdf8" strokeWidth="1" />
-                  <rect x="27" y="47" width="30" height="26" fill="#475569" stroke="#38bdf8" strokeWidth="1.4" rx="1.5" />
-                  <text x="42" y="62" fill="#e0f2fe" fontSize="6" fontFamily="monospace" fontWeight="bold" textAnchor="middle">RADAR BUNKER</text>
-                  <rect x="143" y="127" width="30" height="26" fill="#475569" stroke="#38bdf8" strokeWidth="1.4" rx="1.5" />
-                  <text x="158" y="142" fill="#e0f2fe" fontSize="6" fontFamily="monospace" fontWeight="bold" textAnchor="middle">CRYOGENIC LAB</text>
-                </g>
-              )}
-
-              {/* Perimeter Walls */}
-              <rect x="2.5" y="2.5" width="195" height="195" fill="none" stroke="rgba(56, 189, 248, 0.85)" strokeWidth="2.5" />
-
-              {/* LOCAL OPERATOR ONLY INDICATOR (Zero enemy tracking!) */}
+              {/* Local Player Marker */}
               <g transform={`translate(${playerSvgX}, ${playerSvgY})`}>
-                <circle cx="0" cy="0" r="14" fill="none" stroke="#22d3ee" strokeWidth="1.5" opacity="0.6" />
+                <circle cx="0" cy="0" r="10" fill="none" stroke="#22d3ee" strokeWidth="1.2" opacity="0.6" />
                 <g transform={`rotate(${headingDeg})`}>
-                  <polygon points="0,0 -20,-44 20,-44" fill="url(#largeFovGrad)" />
-                  <polygon points="0,-12 7,7 0,3 -7,7" fill="#06b6d4" stroke="#ffffff" strokeWidth="1.2" />
+                  <polygon points="0,0 -16,-34 16,-34" fill="url(#largeFovGrad)" />
+                  <polygon points="0,-8 5,5 0,2 -5,5" fill="#06b6d4" stroke="#ffffff" strokeWidth="0.9" />
                 </g>
-                <circle cx="0" cy="0" r="3" fill="#ffffff" stroke="#0891b2" strokeWidth="1.5" />
-
-                {/* Callout Label */}
-                <rect x="-24" y="6" width="48" height="11" fill="rgba(2, 6, 23, 0.9)" stroke="#06b6d4" strokeWidth="0.8" rx="3" />
-                <text x="0" y="14" fill="#67e8f9" fontSize="6.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
-                  YOU ({localPlayer.name})
-                </text>
+                <circle cx="0" cy="0" r="2.4" fill="#ffffff" stroke="#0891b2" strokeWidth="1" />
               </g>
 
               {/* Compass Cardinal Points */}
-              <text x="100" y="11" fill="#38bdf8" fontSize="8" fontFamily="monospace" fontWeight="bold" textAnchor="middle">N</text>
-              <text x="100" y="195" fill="#64748b" fontSize="8" fontFamily="monospace" fontWeight="bold" textAnchor="middle">S</text>
-              <text x="9" y="103" fill="#64748b" fontSize="8" fontFamily="monospace" fontWeight="bold" textAnchor="middle">W</text>
-              <text x="191" y="103" fill="#64748b" fontSize="8" fontFamily="monospace" fontWeight="bold" textAnchor="middle">E</text>
+              <text x="100" y="11" fill="#38bdf8" fontSize="7" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                N
+              </text>
+              <text x="100" y="196" fill="#64748b" fontSize="7" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                S
+              </text>
+              <text x="8" y="103" fill="#64748b" fontSize="7" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                W
+              </text>
+              <text x="192" y="103" fill="#64748b" fontSize="7" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                E
+              </text>
             </svg>
           </div>
         </div>
 
-        {/* Footer info bar */}
+        {/* Footer Hint Bar */}
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: '12px 20px',
+            padding: '10px 20px',
+            backgroundColor: 'rgba(15, 23, 42, 0.8)',
             borderTop: '1px solid rgba(30, 41, 59, 0.8)',
-            backgroundColor: 'rgba(15, 23, 42, 0.5)',
-            fontSize: '11px',
-            color: '#94a3b8',
+            fontSize: '10px',
+            color: '#64748b',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Crosshair style={{ width: '14px', height: '14px', color: '#38bdf8' }} />
-            <span>OPERATOR POSITION VERIFIED • COMPLETE BATTLEFIELD SCHEMATIC</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <kbd
-              style={{
-                padding: '2px 6px',
-                borderRadius: '4px',
-                backgroundColor: '#1e293b',
-                border: '1px solid #334155',
-                color: '#e2e8f0',
-                fontSize: '10px',
-              }}
-            >
-              ESC / M
-            </kbd>
-            <span>TO CLOSE</span>
-          </div>
+          <span>PRESS [M] OR [ESC] TO CLOSE MAP</span>
+          <span style={{ color: '#38bdf8' }}>AUTHORITATIVE REAL-TIME SATELLITE GPS</span>
         </div>
       </div>
     </div>

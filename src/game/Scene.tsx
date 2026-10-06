@@ -8,6 +8,7 @@ import { MAPS } from '../config/maps';
 import { RealisticWeaponPickup } from './weapons/RealisticWeaponPickup';
 import { RealisticPlayer } from './player/RealisticPlayer';
 import { BulletManager } from './combat/BulletManager';
+import { DecalManager } from './combat/DecalManager';
 import { PlayerController } from './players/PlayerController';
 import { CollisionDebugVisualizer } from './collision/CollisionDebugVisualizer';
 import { AimDebugMarker } from './combat/AimDebugMarker';
@@ -42,6 +43,15 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
       {/* 2. Realistic Sunlight & Natural Ambient Fill (PBR) */}
       <ambientLight intensity={sky.ambientIntensity} color={sky.ambientColor} />
 
+      {/* Tropical Hemisphere Light for natural canopy sky/ground bounce fill */}
+      <hemisphereLight
+        args={[
+          sky.ambientColor || '#dff0e4',
+          sky.skyBounceColor || '#4d6952',
+          activeMapId === 'jungle-ops' ? 0.85 : 0.45,
+        ]}
+      />
+
       {/* Primary Directional Sunlight with High-Resolution Shadows */}
       <directionalLight
         position={sky.sunPosition}
@@ -49,17 +59,19 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
         color={sky.sunColor}
         castShadow
         shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-32}
-        shadow-camera-right={32}
-        shadow-camera-top={32}
-        shadow-camera-bottom={-32}
-        shadow-bias={-0.00015}
+        shadow-camera-left={activeMapId === 'jungle-ops' ? -250 : -32}
+        shadow-camera-right={activeMapId === 'jungle-ops' ? 250 : 32}
+        shadow-camera-top={activeMapId === 'jungle-ops' ? 250 : 32}
+        shadow-camera-bottom={activeMapId === 'jungle-ops' ? -250 : -32}
+        shadow-camera-near={0.5}
+        shadow-camera-far={activeMapId === 'jungle-ops' ? 450 : 260}
+        shadow-bias={-0.0001}
         shadow-normalBias={0.02}
       />
 
       {/* Subtle Sky Bounce Light */}
       <directionalLight
-        position={[-20, 15, -20]}
+        position={[-35, 25, -35]}
         intensity={sky.skyBounceIntensity}
         color={sky.skyBounceColor}
       />
@@ -69,11 +81,13 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
       {activeMapId === 'jungle-ops' && <JungleMap />}
       {activeMapId === 'snow-ops' && <SnowMap />}
 
-      {/* 4. Realistic Ground Weapons resting on gear crates */}
-      <Suspense fallback={null}>
-        <RealisticWeaponPickup item={state.groundWeapons.gun1} />
-        <RealisticWeaponPickup item={state.groundWeapons.gun2} />
-      </Suspense>
+      {/* 4. Realistic Ground Weapons resting on gear crates (Hidden in Sector-02 cleanup) */}
+      {activeMapId !== 'jungle-ops' && (
+        <Suspense fallback={null}>
+          <RealisticWeaponPickup item={state.groundWeapons.gun1} />
+          <RealisticWeaponPickup item={state.groundWeapons.gun2} />
+        </Suspense>
+      )}
 
       {/* 5. Realistic Rigged Vanguard Tactical Soldiers */}
       <Suspense fallback={null}>
@@ -90,7 +104,10 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
       {/* 6. High-Velocity Bullet Tracers and Impact Sparks */}
       <BulletManager bullets={state.bullets} />
 
-      {/* 7. Tactical Third-Person Player Controller */}
+      {/* 7. Bullet Impact Marks / Decals on Solid Surfaces */}
+      <DecalManager decals={state.decals} />
+
+      {/* 8. Tactical Third-Person Player Controller */}
       <PlayerController
         activeId={activeId}
         onNearWeaponChange={onNearWeaponChange}

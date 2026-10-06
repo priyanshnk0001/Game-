@@ -33,6 +33,7 @@ export interface VaultTarget {
 export class CollisionWorld {
   // Current active map boundary limits
   public static currentBounds = { ...MAP_BOUNDS };
+  public static terrainHeightFn: ((x: number, z: number) => number) | null = null;
 
   // Master registry of all physical map structures
   public static obstacles: CollisionBox[] = [
@@ -94,7 +95,7 @@ export class CollisionWorld {
     currentFeetY: number,
     footprintRadius = 0.35
   ): number {
-    let highestGround = 0;
+    let highestGround = this.terrainHeightFn ? this.terrainHeightFn(x, z) : 0;
 
     for (const obs of this.obstacles) {
       const topY = obs.position[1] + obs.size[1] / 2;
@@ -479,10 +480,12 @@ export class CollisionWorld {
    */
   public static setMap(
     obstacles: CollisionBox[],
-    bounds: { minX: number; maxX: number; minZ: number; maxZ: number } = MAP_BOUNDS
+    bounds: { minX: number; maxX: number; minZ: number; maxZ: number } = MAP_BOUNDS,
+    terrainHeightFn: ((x: number, z: number) => number) | null = null
   ) {
     this.obstacles = obstacles;
     this.currentBounds = { ...bounds };
+    this.terrainHeightFn = terrainHeightFn;
   }
 
   /**
@@ -555,9 +558,17 @@ export class CollisionWorld {
     origin: THREE.Vector3,
     direction: THREE.Vector3,
     maxRange: number
-  ): { hit: boolean; distance: number; hitPoint: THREE.Vector3 } {
+  ): {
+    hit: boolean;
+    distance: number;
+    hitPoint: THREE.Vector3;
+    hitNormal?: THREE.Vector3;
+    surfaceType?: 'concrete' | 'metal' | 'wood' | 'stone' | 'ground';
+  } {
     let closestDist = maxRange;
     const finalHitPoint = new THREE.Vector3().copy(origin).addScaledVector(direction, maxRange);
+    let finalHitNormal: THREE.Vector3 | undefined = undefined;
+    let finalSurfaceType: 'concrete' | 'metal' | 'wood' | 'stone' | 'ground' | undefined = undefined;
 
     const localRay = new THREE.Ray();
     const localOrigin = new THREE.Vector3();
@@ -595,7 +606,47 @@ export class CollisionWorld {
             obs.position[1] + hitVec.y,
             obs.position[2] + (-sin * hitVec.x + cos * hitVec.z)
           );
+
+          // Find hit face in local space
+          const dx = Math.abs(Math.abs(hitVec.x) - halfX);
+          const dy = Math.abs(Math.abs(hitVec.y) - halfY);
+          const dz = Math.abs(Math.abs(hitVec.z) - halfZ);
+          const minD = Math.min(dx, dy, dz);
+          const localNormal = new THREE.Vector3();
+          if (minD === dx) localNormal.set(hitVec.x > 0 ? 1 : -1, 0, 0);
+          else if (minD === dy) localNormal.set(0, hitVec.y > 0 ? 1 : -1, 0);
+          else localNormal.set(0, 0, hitVec.z > 0 ? 1 : -1);
+
+          // Transform local normal to world space
+          finalHitNormal = new THREE.Vector3(
+            cos * localNormal.x + sin * localNormal.z,
+            localNormal.y,
+            -sin * localNormal.x + cos * localNormal.z
+          ).normalize();
+
+          // Surface classification
+          if (obs.type === 'container') {
+            finalSurfaceType = 'metal';
+          } else if (obs.type === 'crate' || obs.type === 'tree') {
+            finalSurfaceType = 'wood';
+          } else if (obs.type === 'rock') {
+            finalSurfaceType = 'stone';
+          } else {
+            finalSurfaceType = 'concrete';
+          }
         }
+      }
+    }
+
+    // Check ground plane intersection
+    const baseGroundY = this.terrainHeightFn ? this.terrainHeightFn(origin.x, origin.z) : 0;
+    if (direction.y < -0.0001 && origin.y > baseGroundY) {
+      const tGround = (baseGroundY - origin.y) / direction.y;
+      if (tGround > 0 && tGround < closestDist) {
+        closestDist = tGround;
+        finalHitPoint.copy(origin).addScaledVector(direction, tGround);
+        finalHitNormal = new THREE.Vector3(0, 1, 0);
+        finalSurfaceType = 'ground';
       }
     }
 
@@ -603,6 +654,8 @@ export class CollisionWorld {
       hit: closestDist < maxRange,
       distance: closestDist,
       hitPoint: finalHitPoint,
+      hitNormal: finalHitNormal,
+      surfaceType: finalSurfaceType,
     };
   }
 }
