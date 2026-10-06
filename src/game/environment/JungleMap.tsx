@@ -8,6 +8,7 @@ import {
   getDistanceToRoads,
   checkRoadClearance,
   JungleRoadDef,
+  getFilteredJungleTrees,
 } from '../../config/maps';
 
 // ============================================================================
@@ -2582,66 +2583,15 @@ export const JungleMap: React.FC = () => {
     return geom;
   }, []);
 
-  // Distinct Ecological Tree Populations (Strict Road Clearance: min distance > roadWidth/2 + margin)
-  // Distinct Ecological Tree Populations (Strict Road Clearance: min distance > roadCorridorHalf + objectRadius + buffer)
-  // 1. Dominant Green Trees (80-90% total population: Emergent, Mature Canopy, Young Tropical)
-  const emergentTrees = useMemo(() => {
-    const raw: [number, number][] = [
-      [-82, 35], [-55, 75], [-15, 80], [14, 78], [-28, 62], [18, 62],
-      [-82, -25], [-16, -48], [-12, -78], [78, -52], [82, -78], [85, 48]
-    ];
-    return raw.filter(([x, z]) => checkRoadClearance(x, z, 5.5, 1.8).isClear);
-  }, []);
-
-  const matureCanopyTrees = useMemo(() => {
-    const raw: [number, number][] = [
-      [-72, 22], [-45, 15], [-24, 38], [-72, -12], [-38, -12],
-      [6, -48], [32.6, 9.4], [78, 20], [38, -72], [65.2, 85.2]
-    ];
-    return raw.filter(([x, z]) => checkRoadClearance(x, z, 6.0, 1.8).isClear);
-  }, []);
-
-  const youngTropicalTrees = useMemo(() => {
-    const raw: [number, number][] = [
-      [-35, 52], [-10, 52], [-58, -18], [-24.2, -12.2], [-28, -68],
-      [16, -22], [58, 14], [22, -58], [70.6, -28.1], [28, 82]
-    ];
-    return raw.filter(([x, z]) => checkRoadClearance(x, z, 3.2, 1.5).isClear);
-  }, []);
-
-  // 2. Special Scenic Purple Flowering Trees (5-10% population: along selected road corridors & village approaches)
-  const scenicJacarandaTrees = useMemo(() => {
-    const raw: [number, number][] = [
-      [-42, -28], [-36.4, -23.6], [-29.5, -16.6], [-23.1, -9.1],
-      [25, 41.2], [30.9, 46.9], [49.4, 66.6], [14.3, -21]
-    ];
-    return raw.filter(([x, z]) => checkRoadClearance(x, z, 4.2, 1.6).isClear);
-  }, []);
-
-  // 3. Rare Japanese Red Laceleaf Maple (3-5% population: isolated decorative clearings, 100% off-road)
-  const rareRedMaples = useMemo(() => {
-    const raw: [number, number][] = [
-      [-58, 42], [56, 32], [28, -62], [-28, 8]
-    ];
-    return raw.filter(([x, z]) => checkRoadClearance(x, z, 5.2, 2.5).isClear);
-  }, []);
-
-  // 4. Highland Conifer Spires (3-5% population: restricted strictly to high Northwest mountain ridge)
-  const highlandConifers = useMemo(() => {
-    const raw: [number, number][] = [
-      [-68, 72], [-52, 78], [-36, 68], [-18, 74], [-8, 76]
-    ];
-    return raw.filter(([x, z]) => checkRoadClearance(x, z, 3.2, 1.5).isClear);
-  }, []);
-
-  const filteredPalms = useMemo(() => {
-    const raw: [number, number][] = [
-      [-16.7, -1.8], [-16, 2], [-6, 12], [8, -18], [15.2, 1.1], [20, -10],
-      [30.7, 46.8], [52, 34], [30, 54], [68.9, 52.9], [-50, -30], [-32, -52],
-      [-5.5, -34], [2, 26], [25.1, 41], [51.6, 68.4]
-    ];
-    return raw.filter(([x, z]) => checkRoadClearance(x, z, 4.0, 1.6).isClear);
-  }, []);
+  // Distinct Ecological Tree Populations (Derived from unified getFilteredJungleTrees())
+  const filteredTrees = useMemo(() => getFilteredJungleTrees(), []);
+  const emergentTrees = filteredTrees.emergent;
+  const matureCanopyTrees = filteredTrees.matureCanopy;
+  const youngTropicalTrees = filteredTrees.youngTropical;
+  const scenicJacarandaTrees = filteredTrees.scenicJacaranda;
+  const rareRedMaples = filteredTrees.rareRedMaple;
+  const highlandConifers = filteredTrees.highlandConifers;
+  const filteredPalms = filteredTrees.palms;
 
   const filteredBamboo = useMemo(() => {
     const raw: [number, number][] = [

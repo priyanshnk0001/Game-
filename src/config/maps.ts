@@ -692,3 +692,81 @@ export const RIVER_WATER_Y = -1.35;
 export const RIVER_HALF_WIDTH = 7.0;
 export const RIVER_MAX_DEPTH = 2.5;
 
+// ============================================================================
+// SECTOR-02 JUNGLE TREE REGISTRY (SINGLE SOURCE OF TRUTH FOR 3D & 2D MAPS)
+// ============================================================================
+export interface JungleTreeRawData {
+  emergent: [number, number][];
+  matureCanopy: [number, number][];
+  youngTropical: [number, number][];
+  scenicJacaranda: [number, number][];
+  rareRedMaple: [number, number][];
+  highlandConifers: [number, number][];
+  palms: [number, number][];
+  banyans: [number, number][];
+  perimeter: [number, number][];
+}
+
+export const RAW_JUNGLE_TREES: JungleTreeRawData = {
+  emergent: [
+    [-82, 35], [-55, 75], [-15, 80], [14, 78], [-28, 62], [18, 62],
+    [-82, -25], [-16, -48], [-12, -78], [78, -52], [82, -78], [85, 48],
+  ],
+  matureCanopy: [
+    [-72, 22], [-45, 15], [-24, 38], [-72, -12], [-38, -12],
+    [6, -48], [32.6, 9.4], [78, 20], [38, -72], [65.2, 85.2],
+  ],
+  youngTropical: [
+    [-35, 52], [-10, 52], [-58, -18], [-24.2, -12.2], [-28, -68],
+    [16, -22], [58, 14], [22, -58], [70.6, -28.1], [28, 82],
+  ],
+  scenicJacaranda: [
+    [-42, -28], [-36.4, -23.6], [-29.5, -16.6], [-23.1, -9.1],
+    [25, 41.2], [30.9, 46.9], [49.4, 66.6], [14.3, -21],
+  ],
+  rareRedMaple: [
+    [-58, 42], [56, 32], [28, -62], [-28, 8],
+  ],
+  highlandConifers: [
+    [-68, 72], [-52, 78], [-36, 68], [-18, 74], [-8, 76],
+  ],
+  palms: [
+    [-16.7, -1.8], [-16, 2], [-6, 12], [8, -18], [15.2, 1.1], [20, -10],
+    [30.7, 46.8], [52, 34], [30, 54], [68.9, 52.9], [-50, -30], [-32, -52],
+    [-5.5, -34], [2, 26], [25.1, 41], [51.6, 68.4],
+  ],
+  banyans: [
+    [-65, 5], [-32, 16], [42, -12], [21.5, 44.2],
+  ],
+  perimeter: [-95, -75, -55, -35, -15, 0, 15, 35, 55, 75, 95].flatMap((c): [number, number][] => [
+    [c, -98],
+    [c, 98],
+    [-98, c],
+    [98, c],
+  ]),
+};
+
+export function getFilteredJungleTrees(): {
+  emergent: [number, number][];
+  matureCanopy: [number, number][];
+  youngTropical: [number, number][];
+  scenicJacaranda: [number, number][];
+  rareRedMaple: [number, number][];
+  highlandConifers: [number, number][];
+  palms: [number, number][];
+  banyans: [number, number][];
+  perimeter: [number, number][];
+} {
+  return {
+    emergent: RAW_JUNGLE_TREES.emergent.filter(([x, z]) => checkRoadClearance(x, z, 5.5, 1.8).isClear),
+    matureCanopy: RAW_JUNGLE_TREES.matureCanopy.filter(([x, z]) => checkRoadClearance(x, z, 6.0, 1.8).isClear),
+    youngTropical: RAW_JUNGLE_TREES.youngTropical.filter(([x, z]) => checkRoadClearance(x, z, 3.2, 1.5).isClear),
+    scenicJacaranda: RAW_JUNGLE_TREES.scenicJacaranda.filter(([x, z]) => checkRoadClearance(x, z, 4.2, 1.6).isClear),
+    rareRedMaple: RAW_JUNGLE_TREES.rareRedMaple.filter(([x, z]) => checkRoadClearance(x, z, 5.2, 2.5).isClear),
+    highlandConifers: RAW_JUNGLE_TREES.highlandConifers.filter(([x, z]) => checkRoadClearance(x, z, 3.2, 1.5).isClear),
+    palms: RAW_JUNGLE_TREES.palms.filter(([x, z]) => checkRoadClearance(x, z, 4.0, 1.6).isClear),
+    banyans: RAW_JUNGLE_TREES.banyans,
+    perimeter: RAW_JUNGLE_TREES.perimeter,
+  };
+}
+
