@@ -1894,8 +1894,8 @@ const RealisticJungleGrassLayer: React.FC<{
 
     const numCandidates = 6000;
     for (let i = 0; i < numCandidates; i++) {
-      const x = (pseudoRandom() - 0.5) * 190;
-      const z = (pseudoRandom() - 0.5) * 190;
+      const x = (pseudoRandom() - 0.5) * 480;
+      const z = (pseudoRandom() - 0.5) * 480;
 
       // FOB Sabre interior yard clearance
       if (x > -70 && x < -34 && z > -68 && z < -34) continue;
@@ -1940,8 +1940,8 @@ const RealisticJungleGrassLayer: React.FC<{
     }
 
     for (let i = 0; i < 2000; i++) {
-      const x = (pseudoRandom() - 0.5) * 185;
-      const z = (pseudoRandom() - 0.5) * 185;
+      const x = (pseudoRandom() - 0.5) * 475;
+      const z = (pseudoRandom() - 0.5) * 475;
 
       if (x > -70 && x < -34 && z > -68 && z < -34) continue;
       const y = getJungleTerrainHeight(x, z);
@@ -2060,23 +2060,23 @@ export const JungleMap: React.FC = () => {
     const groundDiffuse = loader.load('/assets/environment/ground/jungle_ground_diffuse.jpg');
     groundDiffuse.wrapS = THREE.RepeatWrapping;
     groundDiffuse.wrapT = THREE.RepeatWrapping;
-    groundDiffuse.repeat.set(24, 24);
+    groundDiffuse.repeat.set(60, 60);
     groundDiffuse.colorSpace = THREE.SRGBColorSpace;
 
     const groundNormal = loader.load('/assets/environment/ground/jungle_ground_normal.jpg');
     groundNormal.wrapS = THREE.RepeatWrapping;
     groundNormal.wrapT = THREE.RepeatWrapping;
-    groundNormal.repeat.set(24, 24);
+    groundNormal.repeat.set(60, 60);
 
     const groundRoughness = loader.load('/assets/environment/ground/jungle_ground_roughness.jpg');
     groundRoughness.wrapS = THREE.RepeatWrapping;
     groundRoughness.wrapT = THREE.RepeatWrapping;
-    groundRoughness.repeat.set(24, 24);
+    groundRoughness.repeat.set(60, 60);
 
     const groundAO = loader.load('/assets/environment/ground/jungle_ground_ao.jpg');
     groundAO.wrapS = THREE.RepeatWrapping;
     groundAO.wrapT = THREE.RepeatWrapping;
-    groundAO.repeat.set(24, 24);
+    groundAO.repeat.set(60, 60);
 
     // 2. Realistic Tropical Grass & Fern Textures (Poly Haven CC0)
     const grassDiffuse = loader.load('/assets/environment/grass/tropical_grass_diffuse.png');
@@ -2488,10 +2488,10 @@ export const JungleMap: React.FC = () => {
     };
   }, []);
 
-  // 160x160 High-Density Terrain Mesh (220m x 220m)
+  // High-Density Terrain Mesh (560m x 560m across 10X playground)
   const terrainGeometry = useMemo(() => {
-    const size = 220;
-    const segments = 150;
+    const size = 560;
+    const segments = 180;
     const geom = new THREE.PlaneGeometry(size, size, segments, segments);
     geom.rotateX(-Math.PI / 2);
 
@@ -2504,10 +2504,10 @@ export const JungleMap: React.FC = () => {
       const vy = getJungleTerrainHeight(vx, vz);
       pos.setY(i, vy);
 
-      // 3-octave continuous macro biome variation across the 220m landscape
-      const n1 = Math.sin(vx * 0.038 + vz * 0.026) * 0.45;
-      const n2 = Math.cos(vx * 0.072 - vz * 0.058) * 0.35;
-      const n3 = Math.sin(vx * 0.014 - vz * 0.018) * 0.20;
+      // 3-octave continuous macro biome variation across the 560m landscape
+      const n1 = Math.sin(vx * 0.015 + vz * 0.010) * 0.45;
+      const n2 = Math.cos(vx * 0.028 - vz * 0.022) * 0.35;
+      const n3 = Math.sin(vx * 0.006 - vz * 0.007) * 0.20;
       const macroNoise = n1 + n2 + n3; // in [-1.0, 1.0]
 
       // Organic color zones:
@@ -2564,9 +2564,9 @@ export const JungleMap: React.FC = () => {
   const eastJunctionGeom = useMemo(() => createRoadJunctionGeometry(12, 14, 6.8), []);
   const northRidgeJunctionGeom = useMemo(() => createRoadJunctionGeometry(34, 35, 5.5), []);
 
-  // Encircling Mountain Ridge Horizon Rim
+  // Encircling Mountain Ridge Horizon Rim (scaled to 360m radius around 500m map)
   const horizonMountainGeometry = useMemo(() => {
-    const geom = new THREE.CylinderGeometry(135, 115, 34, 48, 4, true);
+    const geom = new THREE.CylinderGeometry(360, 310, 80, 64, 4, true);
     const pos = geom.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const vx = pos.getX(i);
@@ -2574,9 +2574,9 @@ export const JungleMap: React.FC = () => {
       const vz = pos.getZ(i);
       const angle = Math.atan2(vz, vx);
       const ridgeNoise =
-        Math.sin(angle * 6) * 5.5 +
-        Math.sin(angle * 14) * 2.8 +
-        Math.cos(angle * 22) * 1.5;
+        Math.sin(angle * 6) * 14.0 +
+        Math.sin(angle * 14) * 6.5 +
+        Math.cos(angle * 22) * 3.5;
       pos.setY(i, vy + ridgeNoise);
     }
     geom.computeVertexNormals();
@@ -2662,9 +2662,9 @@ export const JungleMap: React.FC = () => {
       {/* ================================================================ */}
       {SECTOR02_CONFIG.ENABLE_WATER_AND_BRIDGE && (
         <>
-          {/* Sunken River Surface (Follows lower ravine at y = -1.35, aligned along ravine) */}
+          {/* Sunken River Surface (Follows lower ravine at y = -1.35, aligned along ravine across 500m) */}
           <mesh position={[0, -1.35, 0]} rotation={[-Math.PI / 2, -Math.PI / 4, 0]} receiveShadow material={materials.streamWater}>
-            <planeGeometry args={[14.0, 180]} />
+            <planeGeometry args={[14.0, 700]} />
           </mesh>
           {/* Timber Trestle Bridge (Spans ravine at [0, 0], 45-deg collinear with road) */}
           <TimberTrestleBridge position={[0, 0.25, 0]} length={12.0} width={6.5} rotationY={Math.PI / 4} woodMaterial={materials.weatheredWood} />
@@ -3096,9 +3096,7 @@ export const JungleMap: React.FC = () => {
           })}
 
           {/* Banyan Spreading Trees (Deep Forest Anchors) */}
-          {[
-            [-65, 5], [-32, 16], [42, -12], [21.5, 44.2]
-          ].map(([bx, bz], i) => {
+          {filteredTrees.banyans.map(([bx, bz], i) => {
             const scale = 0.95 + (i % 2) * 0.2;
             return (
               <BanyanTree
@@ -3127,11 +3125,11 @@ export const JungleMap: React.FC = () => {
             />
           ))}
 
-          {/* Dense Outer Perimeter Jungle Wall (Encircling 200m Map) */}
-          {[-95, -75, -55, -35, -15, 0, 15, 35, 55, 75, 95].map((coord, i) => (
+          {/* Dense Outer Perimeter Jungle Wall (Encircling 500m Map) */}
+          {[-240, -200, -160, -120, -80, -40, 0, 40, 80, 120, 160, 200, 240].map((coord, i) => (
             <React.Fragment key={`perim-wall-${i}`}>
               <RainforestEmergentTree
-                position={[coord, getTreePlacementY(coord, -98, 2.6), -98]}
+                position={[coord, getTreePlacementY(coord, -245, 2.6), -245]}
                 height={14.0}
                 scale={1.35}
                 barkMaterial={materials.bark}
@@ -3139,7 +3137,7 @@ export const JungleMap: React.FC = () => {
                 leafHighlightMaterial={materials.leafHighlight}
               />
               <RainforestEmergentTree
-                position={[coord, getTreePlacementY(coord, 98, 2.6), 98]}
+                position={[coord, getTreePlacementY(coord, 245, 2.6), 245]}
                 height={14.0}
                 scale={1.35}
                 barkMaterial={materials.bark}
@@ -3147,7 +3145,7 @@ export const JungleMap: React.FC = () => {
                 leafHighlightMaterial={materials.leafHighlight}
               />
               <RainforestEmergentTree
-                position={[-98, getTreePlacementY(-98, coord, 2.6), coord]}
+                position={[-245, getTreePlacementY(-245, coord, 2.6), coord]}
                 height={14.0}
                 scale={1.35}
                 barkMaterial={materials.bark}
@@ -3155,7 +3153,7 @@ export const JungleMap: React.FC = () => {
                 leafHighlightMaterial={materials.leafHighlight}
               />
               <RainforestEmergentTree
-                position={[98, getTreePlacementY(98, coord, 2.6), coord]}
+                position={[245, getTreePlacementY(245, coord, 2.6), coord]}
                 height={14.0}
                 scale={1.35}
                 barkMaterial={materials.bark}

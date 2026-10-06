@@ -59,12 +59,12 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
         color={sky.sunColor}
         castShadow
         shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={activeMapId === 'jungle-ops' ? -80 : -32}
-        shadow-camera-right={activeMapId === 'jungle-ops' ? 80 : 32}
-        shadow-camera-top={activeMapId === 'jungle-ops' ? 80 : 32}
-        shadow-camera-bottom={activeMapId === 'jungle-ops' ? -80 : -32}
+        shadow-camera-left={activeMapId === 'jungle-ops' ? -250 : -32}
+        shadow-camera-right={activeMapId === 'jungle-ops' ? 250 : 32}
+        shadow-camera-top={activeMapId === 'jungle-ops' ? 250 : 32}
+        shadow-camera-bottom={activeMapId === 'jungle-ops' ? -250 : -32}
         shadow-camera-near={0.5}
-        shadow-camera-far={260}
+        shadow-camera-far={activeMapId === 'jungle-ops' ? 450 : 260}
         shadow-bias={-0.0001}
         shadow-normalBias={0.02}
       />

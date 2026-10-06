@@ -53,11 +53,11 @@ export const BATTLE_AREA_OBSTACLES: CollisionBox[] = [
 ];
 
 export const JUNGLE_OPS_OBSTACLES: CollisionBox[] = [
-  // 1. Natural Outer Perimeter Boundary (160m x 160m Region: -80 to +80)
-  { id: 'jungle_perim_n', position: [0, 4.0, -80], size: [160, 8.0, 2.0], rotationY: 0, type: 'wall' },
-  { id: 'jungle_perim_s', position: [0, 4.0, 80], size: [160, 8.0, 2.0], rotationY: 0, type: 'wall' },
-  { id: 'jungle_perim_w', position: [-80, 4.0, 0], size: [2.0, 8.0, 160], rotationY: 0, type: 'wall' },
-  { id: 'jungle_perim_e', position: [80, 4.0, 0], size: [2.0, 8.0, 160], rotationY: 0, type: 'wall' },
+  // 1. Natural Outer Perimeter Boundary (500m x 500m Region: -250 to +250)
+  { id: 'jungle_perim_n', position: [0, 6.0, -250], size: [500, 12.0, 4.0], rotationY: 0, type: 'wall' },
+  { id: 'jungle_perim_s', position: [0, 6.0, 250], size: [500, 12.0, 4.0], rotationY: 0, type: 'wall' },
+  { id: 'jungle_perim_w', position: [-250, 6.0, 0], size: [4.0, 12.0, 500], rotationY: 0, type: 'wall' },
+  { id: 'jungle_perim_e', position: [250, 6.0, 0], size: [4.0, 12.0, 500], rotationY: 0, type: 'wall' },
 
   // 2. Southwest Tactical Compound: "FOB Sabre" (South of Main Road corridor, 0 road violations)
   { id: 'fob_hq_container', position: [-52, 1.3, -60], size: [12.0, 2.6, 2.5], rotationY: 0.15, type: 'container' },
@@ -220,7 +220,7 @@ export const MAPS: Record<MapId, MapDefinition> = {
     description:
       'Expansive 200m tropical combat theatre featuring rural village Ban Khao, military Forward Operating Base Alpha, high-ground observation watchtowers, connected road network, winding river crossing, and deep rainforest.',
     environmentType: 'jungle',
-    bounds: { minX: -80, maxX: 80, minZ: -80, maxZ: 80 },
+    bounds: { minX: -250, maxX: 250, minZ: -250, maxZ: 250 },
     playerSpawns: {
       player1: [-54, 0.9, -50],
       player2: [45, 3.2, 45],
@@ -234,7 +234,7 @@ export const MAPS: Record<MapId, MapDefinition> = {
       gun2: [40, 3.2, 54],
     },
     sky: {
-      sunPosition: [55, 48, 40],
+      sunPosition: [120, 100, 80],
       inclination: 0.55,
       azimuth: 0.25,
       turbidity: 5.5,
@@ -242,8 +242,8 @@ export const MAPS: Record<MapId, MapDefinition> = {
       mieCoefficient: 0.0035,
       mieDirectionalG: 0.78,
       fogColor: '#7a9682',
-      fogNear: 55,
-      fogFar: 225,
+      fogNear: 80,
+      fogFar: 550,
       ambientColor: '#d4ebd9',
       ambientIntensity: 1.1,
       sunColor: '#fff8e7',
@@ -617,48 +617,47 @@ export function validateJungleRoadClearance(obstacles: CollisionBox[]): { violat
 }
 
 export function getJungleTerrainHeight(x: number, z: number): number {
-  // 1. North Observation Ridge (x: -35..35, z: 45..88) - Prominent tactical hill rising to +6.8m
-  const dxRidge = (x - 0) / 36;
-  const dzRidge = (z - 68) / 26;
+  // 1. North Observation Ridge (x: -90..90, z: 110..240) - Prominent tactical hill rising to +8.5m
+  const dxRidge = (x - 0) / 75;
+  const dzRidge = (z - 175) / 55;
   const ridgeDistSq = dxRidge * dxRidge + dzRidge * dzRidge;
-  const ridgeHeight = ridgeDistSq < 1.0 ? Math.cos(Math.sqrt(ridgeDistSq) * (Math.PI / 2)) * 6.8 : 0;
+  const ridgeHeight = ridgeDistSq < 1.0 ? Math.cos(Math.sqrt(ridgeDistSq) * (Math.PI / 2)) * 8.5 : 0;
 
-  // 2. Rural Village "Ban Khao" Elevated Plateau (x: 20..75, z: 20..75) - Raised terrace at +2.8m
-  const dxVillage = (x - 48) / 34;
-  const dzVillage = (z - 48) / 34;
+  // 2. Rural Plateau (x: 65..195, z: 65..195) - Raised terrace at +3.2m
+  const dxVillage = (x - 130) / 65;
+  const dzVillage = (z - 130) / 65;
   const villageDistSq = dxVillage * dxVillage + dzVillage * dzVillage;
-  const villageHeight = villageDistSq < 1.0 ? Math.cos(Math.sqrt(villageDistSq) * (Math.PI / 2)) * 2.8 : 0;
+  const villageHeight = villageDistSq < 1.0 ? Math.cos(Math.sqrt(villageDistSq) * (Math.PI / 2)) * 3.2 : 0;
 
-  // 3. Central Winding Creek Ravine - Sunken water drainage gully cutting down to -2.0m
-  // The stream curves from [65, -30] through [0, 0] to [-55, 45]
-  const streamPathZ = -x * 0.75 + Math.sin(x * 0.05) * 7.0;
+  // 3. Central Winding Creek Ravine - Sunken water drainage gully cutting down to -2.0m across 500m
+  // The stream curves from [225, -170] through [0, 0] to [-225, 170]
+  const streamPathZ = -x * 0.75 + Math.sin(x * 0.02) * 14.0;
   const distToStream = Math.abs(z - streamPathZ);
   const streamWidth = 14.0;
   const streamDip = distToStream < streamWidth ? -Math.cos((distToStream / streamWidth) * (Math.PI / 2)) * 2.0 : 0;
 
-  // 4. Southeast Farmland Rolling Knolls (x: 35..85, z: -75..-25) - Gentle agricultural slopes (+2.4m)
-  const dxFarm = (x - 60) / 30;
-  const dzFarm = (z - 52) / 30;
+  // 4. Southeast Farmland Rolling Knolls (x: 60..180, z: -180..-60) - Gentle agricultural slopes (+2.5m)
+  const dxFarm = (x - 120) / 60;
+  const dzFarm = (z - (-120)) / 60;
   const farmDistSq = dxFarm * dxFarm + dzFarm * dzFarm;
-  const farmHeight = farmDistSq < 1.0 ? Math.cos(Math.sqrt(farmDistSq) * (Math.PI / 2)) * 2.4 : 0;
+  const farmHeight = farmDistSq < 1.0 ? Math.cos(Math.sqrt(farmDistSq) * (Math.PI / 2)) * 2.5 : 0;
 
-  // 5. Northwest Ancient Ruins Hillock (x: -70..-30, z: 25..65) - Rises to +2.5m
-  const dxRuins = (x - 50) / 24;
-  const dzRuins = (z - 45) / 24;
+  // 5. Northwest Ancient Ruins Hillock (x: -180..-60, z: 60..180) - Rises to +3.0m
+  const dxRuins = (x - (-120)) / 60;
+  const dzRuins = (z - 120) / 60;
   const ruinsDistSq = dxRuins * dxRuins + dzRuins * dzRuins;
-  const ruinsHeight = ruinsDistSq < 1.0 ? Math.cos(Math.sqrt(ruinsDistSq) * (Math.PI / 2)) * 2.5 : 0;
+  const ruinsHeight = ruinsDistSq < 1.0 ? Math.cos(Math.sqrt(ruinsDistSq) * (Math.PI / 2)) * 3.0 : 0;
 
-  // 6. Southwest FOB Alpha Clearing - Stabilized tactical platform at ~+0.8m
-  const dxFob = (x - (-50)) / 28;
-  const dzFob = (z - (-48)) / 28;
+  // 6. Southwest FOB Alpha Clearing - Stabilized tactical platform at ~+1.2m
+  const dxFob = (x - (-130)) / 65;
+  const dzFob = (z - (-130)) / 65;
   const fobDistSq = dxFob * dxFob + dzFob * dzFob;
-  const fobPlatform = fobDistSq < 1.0 ? Math.cos(Math.sqrt(fobDistSq) * (Math.PI / 2)) * 0.8 : 0;
+  const fobPlatform = fobDistSq < 1.0 ? Math.cos(Math.sqrt(fobDistSq) * (Math.PI / 2)) * 1.2 : 0;
 
-  // 7. Continuous Natural Micro-Relief (Undulating Jungle Floor)
-  // Low-frequency gentle rolls across the 200m landscape
+  // 7. Continuous Natural Micro-Relief (Undulating Jungle Floor across 500m)
   const groundRoll =
-    Math.sin(x * 0.06 + z * 0.035) * 0.65 +
-    Math.cos(x * 0.035 - z * 0.055) * 0.55;
+    Math.sin(x * 0.024 + z * 0.015) * 0.75 +
+    Math.cos(x * 0.015 - z * 0.024) * 0.65;
 
   const total = ridgeHeight + villageHeight + farmHeight + ruinsHeight + fobPlatform + streamDip + groundRoll;
   return Math.max(-2.2, total);
@@ -682,11 +681,13 @@ export function getTreePlacementY(treeX: number, treeZ: number, baseRadius = 2.0
 
 // River System Constants (Sector-02 Ravine Creek)
 export const RIVER_SPINE: [number, number][] = [
-  [-60, 60],
-  [-30, 30],
+  [-225, 170],
+  [-150, 115],
+  [-75, 60],
   [0, 0],
-  [30, -30],
-  [60, -60],
+  [75, -60],
+  [150, -115],
+  [225, -170],
 ];
 export const RIVER_WATER_Y = -1.35;
 export const RIVER_HALF_WIDTH = 7.0;
@@ -709,40 +710,68 @@ export interface JungleTreeRawData {
 
 export const RAW_JUNGLE_TREES: JungleTreeRawData = {
   emergent: [
-    [-82, 35], [-55, 75], [-15, 80], [14, 78], [-28, 62], [18, 62],
-    [-82, -25], [-16, -48], [-12, -78], [78, -52], [82, -78], [85, 48],
+    // Northwest Rainforest Quadrant
+    [-210, 50], [-190, 80], [-160, 45], [-185, 145], [-150, 175], [-110, 160], [-70, 190], [-95, 215], [-40, 220],
+    [-220, 110], [-175, 10], [-60, 150], [-30, 180],
+    // Southwest Jungle Quadrant
+    [-215, -60], [-185, -80], [-220, -180], [-170, -210], [-110, -200], [-80, -170], [-65, -135], [-120, -85],
+    [-190, -130], [-150, -60], [-100, -110], [-70, -70], [-50, -110],
+    // Northeast Forest Quadrant
+    [45, 150], [80, 185], [120, 215], [165, 205], [205, 180], [215, 120], [175, 75], [120, 50],
+    [60, 80], [90, 60], [150, 40], [190, 50], [220, 160], [160, 160],
+    // Southeast Forest Quadrant
+    [50, -140], [80, -180], [130, -205], [175, -190], [215, -150], [225, -90], [190, -45], [135, -30],
+    [70, -50], [100, -70], [150, -80], [180, -110], [210, -50],
   ],
   matureCanopy: [
-    [-72, 22], [-45, 15], [-24, 38], [-72, -12], [-38, -12],
-    [6, -48], [32.6, 9.4], [78, 20], [38, -72], [65.2, 85.2],
+    // NW
+    [-170, 20], [-135, 60], [-80, 50], [-50, 95], [-110, 130], [-160, 210], [-200, 30],
+    // SW
+    [-160, -60], [-95, -70], [-70, -110], [-130, -195], [-190, -150], [-205, -100], [-110, -150],
+    // NE
+    [60, 110], [95, 150], [140, 190], [190, 145], [185, 95], [150, 50], [100, 90], [170, 170],
+    // SE
+    [65, -95], [95, -145], [155, -170], [195, -120], [170, -75], [115, -45], [80, -110], [140, -60],
   ],
   youngTropical: [
-    [-35, 52], [-10, 52], [-58, -18], [-24.2, -12.2], [-28, -68],
-    [16, -22], [58, 14], [22, -58], [70.6, -28.1], [28, 82],
+    // NW
+    [-145, 35], [-75, 75], [-40, 120], [-90, 160], [-180, 90], [-60, 60],
+    // SW
+    [-140, -85], [-85, -120], [-165, -180], [-185, -50], [-55, -90], [-120, -160],
+    // NE
+    [70, 75], [110, 135], [160, 175], [180, 125], [135, 70], [85, 110],
+    // SE
+    [85, -75], [115, -125], [165, -150], [175, -95], [125, -55], [155, -110],
   ],
   scenicJacaranda: [
-    [-42, -28], [-36.4, -23.6], [-29.5, -16.6], [-23.1, -9.1],
-    [25, 41.2], [30.9, 46.9], [49.4, 66.6], [14.3, -21],
+    // Wild natural pockets across the forest
+    [-200, -120], [-160, -90], [-100, -80], [-70, -50], [-40, -25],
+    [40, 35], [75, 60], [105, 80], [165, 140], [210, 170],
+    [45, -65], [75, -85], [105, -100], [165, -35], [155, 35],
   ],
   rareRedMaple: [
-    [-58, 42], [56, 32], [28, -62], [-28, 8],
+    // Accent trees in secret forest grottos
+    [-180, 30], [-110, 85], [-50, 170], [80, 140], [175, 60], [160, -80], [-150, -90], [-60, -160],
   ],
   highlandConifers: [
-    [-68, 72], [-52, 78], [-36, 68], [-18, 74], [-8, 76],
+    // High North Ridge slopes & peaks
+    [-40, 160], [-25, 175], [-15, 195], [15, 195], [30, 180], [45, 165], [-55, 180], [55, 180], [0, 210], [-20, 220], [20, 220],
   ],
   palms: [
-    [-16.7, -1.8], [-16, 2], [-6, 12], [8, -18], [15.2, 1.1], [20, -10],
-    [30.7, 46.8], [52, 34], [30, 54], [68.9, 52.9], [-50, -30], [-32, -52],
-    [-5.5, -34], [2, 26], [25.1, 41], [51.6, 68.4],
+    // Along River Banks
+    [-210, 165], [-190, 145], [-160, 125], [-140, 105], [-105, 88], [-80, 68], [-45, 42], [-20, 20],
+    [20, -20], [45, -42], [75, -68], [100, -88], [130, -108], [160, -125], [190, -145], [210, -165],
+    [-25, -10], [10, -5], [-5, 15],
   ],
   banyans: [
-    [-65, 5], [-32, 16], [42, -12], [21.5, 44.2],
+    // Deep forest ancient banyans
+    [-190, -30], [-150, 20], [-100, 140], [-35, 75], [70, 170], [190, 70], [180, -150], [-70, -190],
   ],
-  perimeter: [-95, -75, -55, -35, -15, 0, 15, 35, 55, 75, 95].flatMap((c): [number, number][] => [
-    [c, -98],
-    [c, 98],
-    [-98, c],
-    [98, c],
+  perimeter: [-240, -200, -160, -120, -80, -40, 0, 40, 80, 120, 160, 200, 240].flatMap((c): [number, number][] => [
+    [c, -245],
+    [c, 245],
+    [-245, c],
+    [245, c],
   ]),
 };
 
