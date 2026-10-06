@@ -219,7 +219,7 @@ export function buildRiverWaterGeometry(
   spline: RiverSampledPoint[] = getSector02RiverSpline()
 ): THREE.BufferGeometry {
   const n = spline.length;
-  const RINGS = 11; // 11 transverse vertices across river width
+  const RINGS = 15; // High transverse mesh density across river width
 
   const positions: number[] = [];
   const uvs: number[] = [];
@@ -228,7 +228,8 @@ export function buildRiverWaterGeometry(
 
   for (let i = 0; i < n; i++) {
     const pt = spline[i];
-    const halfW = pt.width * 0.5;
+    // Extend slightly into bank (0.25m) so water seamlessly embeds into sloping ground
+    const halfW = pt.width * 0.5 + 0.25;
     const arcLen = pt.arcLength;
 
     for (let j = 0; j < RINGS; j++) {
@@ -238,9 +239,9 @@ export function buildRiverWaterGeometry(
       const wx = pt.x + pt.normalX * offset;
       const wz = pt.z + pt.normalZ * offset;
 
-      // Subtle water meniscus dip (surface is highest at center, 2cm lower at banks)
+      // Subtle natural water meniscus curve
       const edgeFactor = Math.abs(u - 0.5) * 2.0;
-      const surfaceCurvature = (1.0 - edgeFactor * edgeFactor) * 0.04;
+      const surfaceCurvature = (1.0 - edgeFactor * edgeFactor) * 0.03;
       const wy = config.waterLevel + surfaceCurvature;
 
       positions.push(wx, wy, wz);
@@ -249,7 +250,7 @@ export function buildRiverWaterGeometry(
       uvs.push(u, arcLen / 6.0);
 
       // aRiverParams: x = normalized distance from center [0..1], y = velocity multiplier (center faster than edges)
-      const flowVel = 1.0 - edgeFactor * edgeFactor * 0.45; // 1.0 at center, 0.55 at banks
+      const flowVel = 1.0 - edgeFactor * edgeFactor * 0.45;
       flowParams.push(edgeFactor, flowVel);
     }
 

@@ -7,6 +7,7 @@ import { Shield, Crosshair as CrosshairIcon } from 'lucide-react';
 import { Minimap } from './Minimap';
 import { LargeMapModal } from './LargeMapModal';
 import { MapSelectorModal } from './MapSelectorModal';
+import { UnderwaterOverlay } from './UnderwaterOverlay';
 
 interface TacticalHUDProps {
   nearbyWeapon: { id: WeaponId; name: string } | null;
@@ -559,6 +560,9 @@ export const TacticalHUD: React.FC<TacticalHUDProps> = ({ nearbyWeapon }) => {
           inputManager.requestLock();
         }}
       />
+
+      {/* Underwater HUD Effects (vignette & depth indicator) */}
+      <UnderwaterOverlay />
     </div>
   );
 };

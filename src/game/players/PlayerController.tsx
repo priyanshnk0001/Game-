@@ -23,6 +23,7 @@ import { gameState } from '../../systems/gameState';
 import { soundManager } from '../../systems/sound';
 import { RaycastCombatSystem } from '../combat/RaycastSystem';
 import { inputManager } from '../input/InputManager';
+import { getRiverProfile } from '../environment/river/RiverFlow';
 
 interface PlayerControllerProps {
   activeId: PlayerId;
@@ -373,6 +374,13 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         targetSpeed = (isProne ? PLAYER_PRONE_SPEED : isCrouching ? PLAYER_CROUCH_SPEED : PLAYER_WALK_SPEED) * 0.65;
       }
 
+      // Natural swimming and wading resistance
+      if (player.waterState === 'surface' || player.waterState === 'underwater') {
+        targetSpeed = Math.min(targetSpeed, 3.8);
+      } else if (player.waterState === 'wading') {
+        targetSpeed = Math.min(targetSpeed, 4.6);
+      }
+
       if (!player.isDead && gameState.matchState.status === 'playing') {
         let inputX = 0;
         let inputZ = 0;
@@ -468,9 +476,51 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         }
 
         // Sector-02 River Water State & Wading/Swimming Detection
-        // (Temporarily disabled: player moves on foot as normal ground movement across the river channel)
         if (gameState.activeMapId === 'jungle-ops') {
-          player.waterState = 'land';
+          const riverProfile = getRiverProfile(player.position[0], player.position[2]);
+          if (riverProfile.isInsideRiver) {
+            const waterLevel = riverProfile.waterLevel;
+            const waterDepthAtPlayer = waterLevel - riverProfile.bedElevation;
+            const swimSurfaceY = waterLevel - 1.05; // Torso waterline
+
+            // In shallow margins (< 0.65m), player wades on foot
+            if (waterDepthAtPlayer < 0.65) {
+              player.waterState = 'wading';
+              player.swimDepth = Math.max(0, waterLevel - player.position[1]);
+            } else {
+              // Deep water: swimming / diving
+              // Buoyancy: smoothly float toward swimming surface unless actively diving
+              if (!input.crouch && player.position[1] < swimSurfaceY && !isProne) {
+                player.position[1] = THREE.MathUtils.lerp(player.position[1], swimSurfaceY, delta * 4.0);
+                verticalVelocity.current = 0;
+                isGrounded.current = false;
+              }
+
+              // Vertical swimming controls:
+              // Jump [SPACE] swims up towards surface
+              if (input.jump && player.position[1] < swimSurfaceY) {
+                player.position[1] += 2.2 * delta;
+              }
+              // Crouch [C] dives downward towards riverbed
+              if (input.crouch && player.position[1] > groundHeight + 0.1) {
+                player.position[1] -= 2.2 * delta;
+              }
+
+              // In horizontal swimming, head height above position[1] is ~0.35m
+              const horizontalHeadY = player.position[1] + 0.35;
+              const isSubmerged = horizontalHeadY < waterLevel || player.position[1] < swimSurfaceY - 0.15 || input.crouch || camera.position.y < waterLevel;
+
+              if (isSubmerged) {
+                player.waterState = 'underwater';
+              } else {
+                player.waterState = 'surface';
+              }
+              player.swimDepth = Math.max(0, waterLevel - player.position[1]);
+            }
+          } else {
+            player.waterState = 'land';
+            player.swimDepth = 0;
+          }
         }
 
         // 9. CHARACTER ROTATION & FACING
@@ -643,11 +693,26 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     let camElevation = 0.32;
     let shoulderOffset = 0.48;
 
+    const isUnderwater = player.waterState === 'underwater';
+    const isSurfaceSwim = player.waterState === 'surface';
+
     if (player.isDead) {
       camDist = 3.2;
       targetPivotY = 0.40;
       camElevation = 0.60;
       shoulderOffset = 0.35;
+    } else if (isUnderwater) {
+      // Underwater diving camera: sits close behind submerged player at torso depth
+      camDist = 1.8;
+      targetPivotY = 0.20;
+      camElevation = 0.08;
+      shoulderOffset = 0.30;
+    } else if (isSurfaceSwim) {
+      // Surface swimming camera: lower profile behind swimming player
+      camDist = 2.4;
+      targetPivotY = 0.45;
+      camElevation = 0.20;
+      shoulderOffset = 0.38;
     } else if (isAiming) {
       camDist = 1.5;
       targetPivotY = isProne ? 0.45 : isCrouching ? 0.95 : 1.40;
@@ -733,6 +798,14 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const minCamY = terrainGroundY + minCamHeightAboveGround;
     if (desiredCamPos.y < minCamY) {
       desiredCamPos.y = minCamY;
+    }
+
+    // When player is underwater, ensure camera view is fully submerged below the river water surface
+    if (isUnderwater && gameState.activeMapId === 'jungle-ops') {
+      const riverWaterLevel = -1.35;
+      if (desiredCamPos.y > riverWaterLevel - 0.15) {
+        desiredCamPos.y = riverWaterLevel - 0.15;
+      }
     }
 
     // Smooth camera damping

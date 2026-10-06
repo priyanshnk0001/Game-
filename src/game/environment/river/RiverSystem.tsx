@@ -6,7 +6,7 @@
  * Water surface rendering is temporarily disabled.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useCallback } from 'react';
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
@@ -15,7 +15,11 @@ import {
   getSector02RiverSpline,
   sampleRiverSpline,
   RiverSampledPoint,
+  buildRiverWaterGeometry,
+  getRiverProfile,
 } from './RiverFlow';
+import { WaterSystem } from '../water/WaterSystem';
+import { WaterConfig } from '../water/WaterConfig';
 
 export interface RiverSystemProps {
   config?: RiverConfig;
@@ -69,6 +73,44 @@ export const RiverSystem: React.FC<RiverSystemProps> = ({
       : sampleRiverSpline(config);
   }, [config]);
 
+  // High-resolution continuous water ribbon geometry following the river spline
+  const waterGeom = useMemo(() => {
+    return buildRiverWaterGeometry(config, spline);
+  }, [config, spline]);
+
+  // Derived WaterConfig for the reusable WaterSystem
+  const waterConfig: WaterConfig = useMemo(() => ({
+    id: config.id,
+    name: config.name,
+    type: 'river',
+    waterLevel: config.waterLevel,
+    flowSpeed: config.flowSpeed,
+    waveScale: 1.8,
+    waveSpeed: 0.8,
+    waveHeight: 0.045,
+    roughness: 0.08,
+    fresnelPower: 3.5,
+    opacity: 0.82,
+    causticsIntensity: 0.85,
+    underwaterFogNear: 1.0,
+    underwaterFogFar: 34.0,
+    colors: {
+      shallow: config.waterColor.shallow,
+      deep: config.waterColor.deep,
+      highlight: config.waterColor.highlight,
+      sunGlint: '#ffffff',
+      underwaterFog: '#084f68', // Signature Tidewater underwater azure
+      causticColor: '#7ee8ff',
+    },
+  }), [config]);
+
+  // Exact river bounds test for camera immersion detection
+  const isCameraUnderwater = useCallback((camPos: THREE.Vector3) => {
+    if (camPos.y > config.waterLevel) return false;
+    const profile = getRiverProfile(camPos.x, camPos.z, config, spline);
+    return profile.isInsideRiver || (profile.isInsideBank && camPos.y < config.waterLevel);
+  }, [config, spline]);
+
   const stonesGeom = useMemo(() => {
     return renderStones ? createRiverStonesGeometry(spline, config) : null;
   }, [renderStones, spline, config]);
@@ -83,7 +125,13 @@ export const RiverSystem: React.FC<RiverSystemProps> = ({
 
   return (
     <group name={`RiverSystem-${config.id}`}>
-      {/* Water mesh rendering temporarily disabled */}
+      {/* Reusable Water System: WaterSurface + Riverbed Caustics + Underwater Fog + God Rays */}
+      <WaterSystem
+        config={waterConfig}
+        geometry={waterGeom}
+        spline={spline}
+        isCameraUnderwaterFn={isCameraUnderwater}
+      />
 
       {/* Shoreline River Stones */}
       {renderStones && stonesGeom && (

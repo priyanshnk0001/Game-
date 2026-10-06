@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { gameState } from '../../systems/gameState';
 import {
   getJungleTerrainHeight,
   getTreePlacementY,
@@ -2055,6 +2057,30 @@ export const SECTOR02_CONFIG = {
 };
 
 export const JungleMap: React.FC = () => {
+  // Lightweight animated procedural sunlight caustics uniforms for underwater riverbed
+  const groundUniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uUnderwaterWeight: { value: 0 },
+    uCausticColor: { value: new THREE.Color('#98f5eb') },
+  }), []);
+
+  useFrame((state, delta) => {
+    const time = state.clock.getElapsedTime();
+    const camY = state.camera.position.y;
+    const activePlayer = gameState.players[gameState.activePlayerId];
+    const isPlayerUnderwater = activePlayer?.waterState === 'underwater';
+    const isCamUnderwater = camY < -1.35;
+    const isUnderwater = isPlayerUnderwater || isCamUnderwater;
+
+    const targetWeight = isUnderwater ? 1.0 : 0.0;
+    groundUniforms.uUnderwaterWeight.value = THREE.MathUtils.lerp(
+      groundUniforms.uUnderwaterWeight.value,
+      targetWeight,
+      Math.min(1.0, delta * 7.5)
+    );
+    groundUniforms.uTime.value = time;
+  });
+
   // PBR Textures & Materials
   const materials = useMemo(() => {
     const loader = new THREE.TextureLoader();
@@ -2168,7 +2194,93 @@ export const JungleMap: React.FC = () => {
       roughness: 0.85,
       metalness: 0.02,
     });
-    // Road splat shader disabled — no onBeforeCompile for ground material
+
+    // Lightweight animated procedural sunlight caustics projected ONLY onto underwater riverbed
+    ground.customProgramCacheKey = () => 'jungle_riverbed_caustics_v2';
+    ground.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = groundUniforms.uTime;
+      shader.uniforms.uUnderwaterWeight = groundUniforms.uUnderwaterWeight;
+      shader.uniforms.uCausticColor = groundUniforms.uCausticColor;
+
+      shader.vertexShader = `
+        varying vec3 vGroundWorldPos;
+      ` + shader.vertexShader;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+         vGroundWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+      );
+
+      shader.fragmentShader = `
+        varying vec3 vGroundWorldPos;
+        uniform float uTime;
+        uniform float uUnderwaterWeight;
+        uniform vec3 uCausticColor;
+
+        // Soft, irregular, broken patches of moving sunlight (Tidewater reference)
+        float getRiverbedCaustic(vec2 p, float time) {
+          // 3 low-frequency non-collinear wave directions (~120 degrees apart)
+          vec2 d1 = vec2( 0.94,  0.34);
+          vec2 d2 = vec2(-0.76,  0.65);
+          vec2 d3 = vec2(-0.17, -0.98);
+
+          // Layer 1: Medium organic patches (~1.2m across)
+          float a1 = dot(p, d1) * 2.1 + time * 0.42;
+          float a2 = dot(p, d2) * 2.4 - time * 0.36;
+          float a3 = dot(p, d3) * 1.9 + time * 0.31;
+
+          // Interference of 3 non-collinear waves produces isolated 2D peaks (scattered light spots)
+          float w1 = cos(a1) + cos(a2) + cos(a3);
+          float patch1 = clamp(w1 * 0.28 + 0.35, 0.0, 1.0);
+
+          // Layer 2: Deforming cross-ripples (~0.7m across) to break up continuity into organic patches
+          vec2 d4 = vec2( 0.62, -0.78);
+          vec2 d5 = vec2(-0.52, -0.85);
+          float b1 = dot(p, d4) * 3.8 - time * 0.48;
+          float b2 = dot(p, d5) * 4.1 + time * 0.39;
+
+          float w2 = cos(b1) * sin(b2);
+          float patch2 = clamp(w2 * 0.5 + 0.5, 0.0, 1.0);
+
+          // Multiply to create soft, irregular, naturally scattered light patches (NOT continuous lines)
+          float caustic = patch1 * (0.50 + 0.50 * patch2);
+
+          // Soft translucent falloff without hard edges or thick ribbons
+          caustic = smoothstep(0.42, 0.85, caustic);
+          return caustic * caustic;
+        }
+      ` + shader.fragmentShader;
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <opaque_fragment>',
+        `
+        // Project caustics ONLY onto the underwater riverbed terrain when underwater
+        if (uUnderwaterWeight > 0.005 && vGroundWorldPos.y < -1.35) {
+          float depthBelowWater = -1.35 - vGroundWorldPos.y;
+          // Soft fade in near waterline (never bleeds onto dry banks)
+          float depthMask = smoothstep(0.04, 0.35, depthBelowWater);
+
+          // Soften with camera distance into fog
+          float camDist = length(vViewPosition);
+          float distFade = clamp(1.0 - camDist / 28.0, 0.0, 1.0);
+          distFade = distFade * distFade;
+
+          // Soften slightly with water depth (light absorption)
+          float depthFade = clamp(1.0 - depthBelowWater * 0.30, 0.40, 1.0);
+
+          float cPattern = getRiverbedCaustic(vGroundWorldPos.xz, uTime);
+
+          // Soft cyan/blue-white translucent sunlight (Tidewater reference)
+          vec3 causticColor = vec3(0.55, 0.90, 0.88);
+
+          // Subtle natural intensity: riverbed texture remains clearly visible underneath
+          float intensity = cPattern * depthMask * uUnderwaterWeight * distFade * depthFade * 0.16;
+          outgoingLight += causticColor * intensity;
+        }
+        #include <opaque_fragment>`
+      );
+    };
 
     const tropicalGrass = new THREE.MeshStandardMaterial({
       map: grassDiffuse,
