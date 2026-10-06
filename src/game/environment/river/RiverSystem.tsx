@@ -92,14 +92,14 @@ export const RiverSystem: React.FC<RiverSystemProps> = ({
     fresnelPower: 3.5,
     opacity: 0.82,
     causticsIntensity: 0.85,
-    underwaterFogNear: 1.0,
-    underwaterFogFar: 34.0,
+    underwaterFogNear: 2.2,
+    underwaterFogFar: 24.0,
     colors: {
       shallow: config.waterColor.shallow,
       deep: config.waterColor.deep,
       highlight: config.waterColor.highlight,
       sunGlint: '#ffffff',
-      underwaterFog: '#084f68', // Signature Tidewater underwater azure
+      underwaterFog: '#0a4856', // Natural freshwater teal depth haze
       causticColor: '#7ee8ff',
     },
   }), [config]);

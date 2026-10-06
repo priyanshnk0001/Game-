@@ -2107,6 +2107,24 @@ export const JungleMap: React.FC = () => {
     groundAO.wrapT = THREE.RepeatWrapping;
     groundAO.repeat.set(60, 60);
 
+    // 1b. PBR Dedicated Riverbed Ground Textures (Poly Haven CC0 River Small Rocks)
+    const riverbedDiffuse = loader.load('/assets/environment/riverbed/riverbed_diffuse.jpg');
+    riverbedDiffuse.wrapS = THREE.RepeatWrapping;
+    riverbedDiffuse.wrapT = THREE.RepeatWrapping;
+    riverbedDiffuse.colorSpace = THREE.SRGBColorSpace;
+
+    const riverbedNormal = loader.load('/assets/environment/riverbed/riverbed_normal.jpg');
+    riverbedNormal.wrapS = THREE.RepeatWrapping;
+    riverbedNormal.wrapT = THREE.RepeatWrapping;
+
+    const riverbedRoughness = loader.load('/assets/environment/riverbed/riverbed_roughness.jpg');
+    riverbedRoughness.wrapS = THREE.RepeatWrapping;
+    riverbedRoughness.wrapT = THREE.RepeatWrapping;
+
+    const riverbedAO = loader.load('/assets/environment/riverbed/riverbed_ao.jpg');
+    riverbedAO.wrapS = THREE.RepeatWrapping;
+    riverbedAO.wrapT = THREE.RepeatWrapping;
+
     // 2. Realistic Tropical Grass & Fern Textures (Poly Haven CC0)
     const grassDiffuse = loader.load('/assets/environment/grass/tropical_grass_diffuse.png');
     grassDiffuse.colorSpace = THREE.SRGBColorSpace;
@@ -2195,25 +2213,40 @@ export const JungleMap: React.FC = () => {
       metalness: 0.02,
     });
 
-    // Lightweight animated procedural sunlight caustics projected ONLY onto underwater riverbed
-    ground.customProgramCacheKey = () => 'jungle_riverbed_caustics_v2';
+    // PBR Riverbed Ground Textures & animated sunlight caustics projected ONLY onto underwater riverbed
+    ground.customProgramCacheKey = () => 'jungle_riverbed_textured_ground_v3';
     ground.onBeforeCompile = (shader) => {
       shader.uniforms.uTime = groundUniforms.uTime;
       shader.uniforms.uUnderwaterWeight = groundUniforms.uUnderwaterWeight;
       shader.uniforms.uCausticColor = groundUniforms.uCausticColor;
+      shader.uniforms.uRiverbedDiffuse = { value: riverbedDiffuse };
+      shader.uniforms.uRiverbedNormal = { value: riverbedNormal };
+      shader.uniforms.uRiverbedRoughness = { value: riverbedRoughness };
+      shader.uniforms.uRiverbedAO = { value: riverbedAO };
 
       shader.vertexShader = `
+        attribute float aRiverWeight;
+        varying float vRiverWeight;
+        varying vec2 vRiverbedUV;
         varying vec3 vGroundWorldPos;
       ` + shader.vertexShader;
 
       shader.vertexShader = shader.vertexShader.replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
-         vGroundWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+         vGroundWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+         vRiverWeight = aRiverWeight;
+         vRiverbedUV = vGroundWorldPos.xz * 0.24;`
       );
 
       shader.fragmentShader = `
         varying vec3 vGroundWorldPos;
+        varying float vRiverWeight;
+        varying vec2 vRiverbedUV;
+        uniform sampler2D uRiverbedDiffuse;
+        uniform sampler2D uRiverbedNormal;
+        uniform sampler2D uRiverbedRoughness;
+        uniform sampler2D uRiverbedAO;
         uniform float uTime;
         uniform float uUnderwaterWeight;
         uniform vec3 uCausticColor;
@@ -2253,30 +2286,75 @@ export const JungleMap: React.FC = () => {
       ` + shader.fragmentShader;
 
       shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        if (vRiverWeight > 0.001) {
+          vec4 rDiff = texture2D(uRiverbedDiffuse, vRiverbedUV);
+          diffuseColor.rgb = mix(diffuseColor.rgb, rDiff.rgb, vRiverWeight);
+        }`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+        #if defined( USE_NORMALMAP_TANGENTSPACE )
+        if (vRiverWeight > 0.001) {
+          vec3 rNormMap = texture2D(uRiverbedNormal, vRiverbedUV).xyz * 2.0 - 1.0;
+          rNormMap.xy *= 0.85;
+          vec3 rNormal = normalize(tbn * rNormMap);
+          normal = normalize(mix(normal, rNormal, vRiverWeight));
+        }
+        #endif`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        if (vRiverWeight > 0.001) {
+          float rRough = texture2D(uRiverbedRoughness, vRiverbedUV).r;
+          roughnessFactor = mix(roughnessFactor, rRough * 0.58, vRiverWeight);
+        }`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <aomap_fragment>',
+        `#include <aomap_fragment>
+        #ifdef USE_AOMAP
+        if (vRiverWeight > 0.001) {
+          float rAO = (texture2D(uRiverbedAO, vRiverbedUV).r - 1.0) * aoMapIntensity + 1.0;
+          reflectedLight.indirectDiffuse *= mix(1.0, rAO, vRiverWeight);
+        }
+        #endif`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
         '#include <opaque_fragment>',
         `
-        // Project caustics ONLY onto the underwater riverbed terrain when underwater
+        // Project caustics & physical water absorption ONLY onto submerged riverbed terrain
         if (uUnderwaterWeight > 0.005 && vGroundWorldPos.y < -1.35) {
           float depthBelowWater = -1.35 - vGroundWorldPos.y;
-          // Soft fade in near waterline (never bleeds onto dry banks)
           float depthMask = smoothstep(0.04, 0.35, depthBelowWater);
 
-          // Soften with camera distance into fog
           float camDist = length(vViewPosition);
           float distFade = clamp(1.0 - camDist / 28.0, 0.0, 1.0);
           distFade = distFade * distFade;
 
-          // Soften slightly with water depth (light absorption)
           float depthFade = clamp(1.0 - depthBelowWater * 0.30, 0.40, 1.0);
 
+          // Subtle moving caustic sunlight patterns falling onto the riverbed
           float cPattern = getRiverbedCaustic(vGroundWorldPos.xz, uTime);
-
-          // Soft cyan/blue-white translucent sunlight (Tidewater reference)
           vec3 causticColor = vec3(0.55, 0.90, 0.88);
-
-          // Subtle natural intensity: riverbed texture remains clearly visible underneath
-          float intensity = cPattern * depthMask * uUnderwaterWeight * distFade * depthFade * 0.16;
+          float intensity = cPattern * depthMask * uUnderwaterWeight * distFade * depthFade * 0.32;
           outgoingLight += causticColor * intensity;
+
+          // Natural freshwater color absorption & gentle contrast softening with distance
+          // Physical water absorption: red wavelengths attenuate through water path
+          float waterPath = camDist + depthBelowWater * 1.5;
+          float absorbFactor = clamp((waterPath - 1.8) / 18.0, 0.0, 0.65) * uUnderwaterWeight;
+          outgoingLight.r *= (1.0 - absorbFactor * 0.36);
+          outgoingLight.g *= (1.0 - absorbFactor * 0.12);
+          // Soft ambient aquatic scatter in the water column
+          outgoingLight += vec3(0.02, 0.09, 0.11) * absorbFactor * 0.55;
         }
         #include <opaque_fragment>`
       );
@@ -2613,6 +2691,7 @@ export const JungleMap: React.FC = () => {
 
     const pos = geom.attributes.position;
     const colors = new Float32Array(pos.count * 3);
+    const riverWeights = new Float32Array(pos.count);
 
     for (let i = 0; i < pos.count; i++) {
       const vx = pos.getX(i);
@@ -2657,24 +2736,31 @@ export const JungleMap: React.FC = () => {
         cb = cb * (1.0 - verge * 0.32) + 0.65 * verge * 0.32;
       }
 
-      // River bed & river bank transition coloring
+      // River bed & river bank transition coloring & riverbed texture weights
       const riverProfile = getRiverProfile(vx, vz);
       if (riverProfile.isInsideRiver) {
-        // Wet submerged riverbed silt, river sand & gravel
+        // Wet submerged riverbed: 1.0 on bed, feathering smoothly at water margin
         const crossT = riverProfile.crossT; // 0 at center, 1 at edge
-        cr = 0.28 + crossT * 0.12;
-        cg = 0.26 + crossT * 0.10;
-        cb = 0.22 + crossT * 0.08;
-      } else if (riverProfile.isInsideBank) {
-        // Moist muddy riverbank & dirt slope leading down to water
-        const bankT = riverProfile.bankT; // 0 at water, 1 at jungle verge
-        const smoothBank = bankT * bankT * (3.0 - 2.0 * bankT);
-        const wetBankR = 0.38;
-        const wetBankG = 0.35;
-        const wetBankB = 0.28;
-        cr = wetBankR * (1.0 - smoothBank) + cr * smoothBank;
-        cg = wetBankG * (1.0 - smoothBank) + cg * smoothBank;
-        cb = wetBankB * (1.0 - smoothBank) + cb * smoothBank;
+        const t = Math.max(0, Math.min(1, (crossT - 0.70) / 0.30));
+        riverWeights[i] = 1.0 - t * t * (3.0 - 2.0 * t);
+
+        // Keep vertex color bright & natural so riverbed PBR texture details remain clear under water
+        cr = 0.82 + crossT * 0.10;
+        cg = 0.80 + crossT * 0.10;
+        cb = 0.76 + crossT * 0.10;
+      } else {
+        riverWeights[i] = 0.0;
+        if (riverProfile.isInsideBank) {
+          // Moist muddy riverbank & dirt slope leading down to water
+          const bankT = riverProfile.bankT; // 0 at water, 1 at jungle verge
+          const smoothBank = bankT * bankT * (3.0 - 2.0 * bankT);
+          const wetBankR = 0.38;
+          const wetBankG = 0.35;
+          const wetBankB = 0.28;
+          cr = wetBankR * (1.0 - smoothBank) + cr * smoothBank;
+          cg = wetBankG * (1.0 - smoothBank) + cg * smoothBank;
+          cb = wetBankB * (1.0 - smoothBank) + cb * smoothBank;
+        }
       }
 
       colors[i * 3] = cr;
@@ -2683,6 +2769,7 @@ export const JungleMap: React.FC = () => {
     }
 
     geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geom.setAttribute('aRiverWeight', new THREE.BufferAttribute(riverWeights, 1));
     geom.computeVertexNormals();
     geom.setAttribute('uv2', geom.attributes.uv);
     return geom;
