@@ -20,7 +20,7 @@ export const UnderwaterOverlay: React.FC = () => {
 
   return (
     <>
-      {/* 1. Subtle peripheral vignette (corners only, completely transparent center) */}
+      {/* 1. Clear tropical freshwater blue-green/teal water depth transmission (Reference 1 & 2) */}
       {isUnderwater && (
         <div
           style={{
@@ -28,7 +28,21 @@ export const UnderwaterOverlay: React.FC = () => {
             inset: 0,
             zIndex: 140,
             pointerEvents: 'none',
-            background: 'radial-gradient(ellipse at 50% 50%, transparent 68%, rgba(2, 22, 35, 0.45) 100%)',
+            // Luminous tropical blue-green / teal freshwater transmission
+            background: 'linear-gradient(180deg, rgba(25, 175, 185, 0.12) 0%, rgba(12, 120, 132, 0.20) 45%, rgba(6, 75, 85, 0.32) 100%)',
+            mixBlendMode: 'multiply',
+          }}
+        />
+      )}
+      {isUnderwater && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 141,
+            pointerEvents: 'none',
+            // Soft sunlight bleed near water surface at top of screen
+            background: 'radial-gradient(ellipse at 50% 0%, rgba(130, 245, 250, 0.18) 0%, transparent 65%)',
           }}
         />
       )}

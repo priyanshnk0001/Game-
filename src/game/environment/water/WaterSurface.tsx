@@ -183,16 +183,19 @@ const WATER_FRAGMENT_SHADER = /* glsl */ `
       float transparency = mix(0.55, uOpacity, depthFactor);
       finalAlpha = clamp(transparency + fresnel * 0.35, 0.50, 0.95);
     } else {
-      // UNDERWATER LOOKING UP AT SURFACE
-      // Total Internal Reflection (TIR) at critical angles (Snell's window)
-      float criticalAngleFactor = smoothstep(0.45, 0.85, NdotV);
-      vec3 snellSkyColor = mix(uColorHighlight, vec3(0.70, 0.88, 0.95), 0.25);
-      vec3 underReflect = mix(uColorDeep * 0.70, snellSkyColor, criticalAngleFactor);
+      // UNDERWATER LOOKING UP AT SURFACE (Reference 1 & 2)
+      // Snell's Window: looking up towards the sky reveals the bright rippling surface with refraction
+      float criticalAngleFactor = smoothstep(0.35, 0.82, NdotV);
+      vec3 snellSkyColor = mix(vec3(0.72, 0.94, 0.98), uColorHighlight, 0.35);
+      vec3 tirWaterColor = mix(uColorDeep * 0.65, vec3(0.06, 0.55, 0.62), 0.70);
+      vec3 underReflect = mix(tirWaterColor, snellSkyColor, criticalAngleFactor);
 
-      // Subtle natural wave glint without any artificial caustic patterns
-      float underGlint = pow(NdotH, 48.0) * 0.65;
-      finalColor = underReflect + uColorSunGlint * underGlint + (waterBodyColor * 0.25);
-      finalAlpha = clamp(0.74 + (1.0 - criticalAngleFactor) * 0.20, 0.65, 0.92);
+      // Bright refracted sunlight shining through wave crests
+      float sunGlintUnder = pow(NdotH, 28.0) * 2.2 + pow(NdotH, 8.0) * 0.5;
+      vec3 sunnySurface = underReflect + uColorSunGlint * sunGlintUnder + (waterBodyColor * 0.35);
+
+      finalColor = sunnySurface;
+      finalAlpha = clamp(0.78 + (1.0 - criticalAngleFactor) * 0.18, 0.72, 0.96);
     }
 
     gl_FragColor = vec4(finalColor, finalAlpha);

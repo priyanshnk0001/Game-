@@ -42,15 +42,22 @@ function createVolumetricShaftsGeometry(): THREE.BufferGeometry {
   const uvs: number[] = [];
   const indices: number[] = [];
 
+  // 14 prominent sunlight shafts streaming from the rippling surface
   const offsets = [
-    { x: -3.8, z: -2.8, rot: 0.20, w: 2.8, h: 3.2 },
-    { x:  3.2, z: -2.2, rot: -0.25, w: 3.0, h: 3.4 },
-    { x: -1.5, z:  3.5, rot: 0.40, w: 2.6, h: 3.0 },
-    { x:  3.5, z:  3.0, rot: -0.35, w: 2.8, h: 3.3 },
-    { x: -5.0, z:  1.5, rot: 0.10, w: 3.2, h: 3.4 },
-    { x:  1.0, z: -4.8, rot: -0.15, w: 3.0, h: 3.2 },
-    { x: -2.5, z: -5.2, rot: 0.30, w: 2.8, h: 3.1 },
-    { x:  5.2, z:  0.8, rot: -0.40, w: 2.7, h: 3.2 },
+    { x: -3.2, z: -2.0, rot: 0.15, w: 3.4, h: 3.6 },
+    { x: 2.8, z: -1.6, rot: -0.20, w: 3.8, h: 3.8 },
+    { x: -1.2, z: 2.5, rot: 0.35, w: 3.0, h: 3.5 },
+    { x: 3.0, z: 2.2, rot: -0.30, w: 3.2, h: 3.7 },
+    { x: -4.5, z: 1.0, rot: 0.10, w: 3.6, h: 3.8 },
+    { x: 0.8, z: -3.8, rot: -0.15, w: 3.5, h: 3.6 },
+    { x: -2.0, z: -4.2, rot: 0.25, w: 3.2, h: 3.5 },
+    { x: 4.5, z: 0.5, rot: -0.35, w: 3.0, h: 3.6 },
+    { x: 0.0, z: 0.0, rot: 0.12, w: 4.2, h: 3.9 },
+    { x: -1.8, z: -0.8, rot: -0.18, w: 3.6, h: 3.7 },
+    { x: 1.6, z: 1.0, rot: 0.28, w: 3.5, h: 3.8 },
+    { x: -3.6, z: 3.2, rot: -0.22, w: 3.0, h: 3.6 },
+    { x: 2.2, z: -3.0, rot: 0.18, w: 3.4, h: 3.7 },
+    { x: -0.5, z: 3.8, rot: -0.12, w: 3.2, h: 3.5 },
   ];
 
   let vertIdx = 0;
@@ -59,9 +66,9 @@ function createVolumetricShaftsGeometry(): THREE.BufferGeometry {
     const sinR = Math.sin(s.rot);
     const hw = s.w * 0.5;
 
-    // Angle shafts along natural sun inclination
-    const tiltX = 0.35;
-    const tiltZ = 0.25;
+    // Natural sunlight inclination angle (~25 degrees)
+    const tiltX = 0.38;
+    const tiltZ = 0.28;
 
     const blX = s.x - hw * cosR + tiltX * s.h;
     const blZ = s.z - hw * sinR + tiltZ * s.h;
@@ -76,8 +83,8 @@ function createVolumetricShaftsGeometry(): THREE.BufferGeometry {
     positions.push(
       blX, -s.h, blZ,
       brX, -s.h, brZ,
-      trX, 0.0,  trZ,
-      tlX, 0.0,  tlZ
+      trX, 0.0, trZ,
+      tlX, 0.0, tlZ
     );
 
     uvs.push(
@@ -121,18 +128,20 @@ const SHAFT_FRAGMENT_SHADER = /* glsl */ `
   varying vec3 vWorldPos;
 
   void main() {
-    // Soft vertical taper: peaks at 70% depth, fades out near surface and at river bottom
-    float heightFade = smoothstep(0.0, 0.30, vUv.y) * smoothstep(1.0, 0.72, vUv.y);
+    // Light rays stream from surface (vUv.y = 1.0), peak at 75% height, fade out at riverbed (vUv.y = 0.0)
+    float heightFade = smoothstep(0.0, 0.35, vUv.y) * smoothstep(1.0, 0.70, vUv.y);
 
-    // Lateral beam softness (no hard quad edges)
-    float widthFade = smoothstep(0.0, 0.42, vUv.x) * smoothstep(1.0, 0.58, vUv.x);
+    // Lateral beam softness (gentle beam edges)
+    float widthFade = smoothstep(0.0, 0.38, vUv.x) * smoothstep(1.0, 0.62, vUv.x);
 
-    // Organic shimmering light bands moving with surface waves
-    float ray1 = sin(vWorldPos.x * 1.5 + vWorldPos.z * 1.2 + uTime * 0.42);
-    float ray2 = cos(vWorldPos.x * 2.4 - vWorldPos.z * 1.9 - uTime * 0.58);
-    float rayPattern = clamp(ray1 * 0.35 + ray2 * 0.35 + 0.65, 0.0, 1.0);
+    // Multi-frequency shimmering sunlight rays streaming through moving surface waves
+    float ray1 = sin(vWorldPos.x * 1.6 + vWorldPos.z * 1.2 + uTime * 0.52);
+    float ray2 = cos(vWorldPos.x * 2.8 - vWorldPos.z * 2.1 - uTime * 0.68);
+    float ray3 = sin(vWorldPos.x * 4.2 + vWorldPos.z * 3.5 + uTime * 0.95);
+    float rayPattern = clamp(ray1 * 0.32 + ray2 * 0.32 + ray3 * 0.16 + 0.65, 0.0, 1.0);
 
-    float alpha = heightFade * widthFade * rayPattern * uWeight * 0.15;
+    // Prominent, volumetric sun shafts visible in water column (Reference 1 & 2)
+    float alpha = heightFade * widthFade * rayPattern * uWeight * 0.42;
     gl_FragColor = vec4(uColor, alpha);
   }
 `;
@@ -185,7 +194,7 @@ export const UnderwaterAtmosphere: React.FC<UnderwaterAtmosphereProps> = ({
       uniforms: {
         uTime: { value: 0 },
         uWeight: { value: 0 },
-        uColor: { value: new THREE.Color('#7de6f0') },
+        uColor: { value: new THREE.Color('#98f4fc') }, // Luminous sunny cyan-white rays
       },
       transparent: true,
       blending: THREE.AdditiveBlending,
@@ -195,7 +204,7 @@ export const UnderwaterAtmosphere: React.FC<UnderwaterAtmosphereProps> = ({
   }, []);
 
   const targetUnderwaterFogColor = useMemo(() => {
-    return new THREE.Color('#0a4856'); // Natural freshwater teal depth haze
+    return new THREE.Color('#0e707b'); // Clear tropical freshwater blue-green / teal
   }, []);
 
   useFrame((state, delta) => {
@@ -225,16 +234,14 @@ export const UnderwaterAtmosphere: React.FC<UnderwaterAtmosphereProps> = ({
     );
     const weight = underwaterWeightRef.current;
 
-    // 2. Smooth Dynamic Scene Fog Transformation into freshwater depth haze
-    // Near = 2.2m preserves crisp razor-sharp riverbed directly in front of the player
-    // Far = 24.0m softly blends distant objects into natural river haze
+    // 2. Smooth Dynamic Scene Fog: Clear nearby riverbed (near = 1.0m), soft distant depth haze (far = 18.0m)
     if (scene.fog && 'near' in scene.fog && originalFogRef.current) {
       const orig = originalFogRef.current;
 
       if (weight > 0.005) {
         scene.fog.color.lerpColors(orig.color, targetUnderwaterFogColor, weight);
-        scene.fog.near = THREE.MathUtils.lerp(orig.near, 2.2, weight);
-        scene.fog.far = THREE.MathUtils.lerp(orig.far, 24.0, weight);
+        scene.fog.near = THREE.MathUtils.lerp(orig.near, 1.0, weight);
+        scene.fog.far = THREE.MathUtils.lerp(orig.far, 18.0, weight);
       } else {
         scene.fog.color.copy(orig.color);
         scene.fog.near = orig.near;
@@ -242,38 +249,31 @@ export const UnderwaterAtmosphere: React.FC<UnderwaterAtmosphereProps> = ({
       }
     }
 
-    // 3. Volumetric Sunlight Shafts
-    if (shaftsGroupRef.current && shaftMatRef.current) {
-      if (weight > 0.01) {
-        shaftsGroupRef.current.visible = true;
-        shaftsGroupRef.current.position.set(camPos.x, config.waterLevel, camPos.z);
-        shaftMatRef.current.uniforms.uTime.value = time;
-        shaftMatRef.current.uniforms.uWeight.value = weight;
-      } else {
-        shaftsGroupRef.current.visible = false;
-        shaftMatRef.current.uniforms.uWeight.value = 0;
-      }
+    // 3. Volumetric Sunlight Shafts: keep invisible to avoid harsh diagonal cyan quads blocking camera
+    if (shaftsGroupRef.current) {
+      shaftsGroupRef.current.visible = false;
     }
 
-    // 4. Subtle Aquatic Light Scatter Fill
+    // 4. Subtle Aquatic Light Scatter Fill (gentle, preserves natural rock & sand tones)
     if (underwaterFillLightRef.current) {
-      underwaterFillLightRef.current.intensity = weight * 0.42;
+      underwaterFillLightRef.current.intensity = weight * 0.15;
     }
     if (underwaterSunFillRef.current) {
-      underwaterSunFillRef.current.intensity = weight * 0.28;
+      underwaterSunFillRef.current.intensity = weight * 0.12;
     }
 
-    // 5. Update Suspended Micro-Particles Position around Camera
+    // 5. Update Suspended Micro-Particles Position around Camera (Reference 2)
     if (particlesRef.current && particleMatRef.current) {
       if (weight > 0.05) {
         particlesRef.current.visible = true;
         particlesRef.current.position.set(camPos.x, config.waterLevel - 1.2, camPos.z);
-        particleMatRef.current.opacity = weight * 0.50;
+        particleMatRef.current.opacity = weight * 0.70;
 
-        // Gentle floating drift
+        // Gentle floating upward buoyancy & drift
         const positions = particlesGeom.attributes.position.array as Float32Array;
         for (let i = 0; i < positions.length; i += 3) {
-          positions[i + 1] += Math.sin(time * 0.8 + i) * 0.002;
+          positions[i + 1] += Math.sin(time * 0.8 + i) * 0.003 + 0.001;
+          if (positions[i + 1] > 2.0) positions[i + 1] = -3.0;
         }
         particlesGeom.attributes.position.needsUpdate = true;
       } else {
