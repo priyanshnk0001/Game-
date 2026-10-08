@@ -17,7 +17,7 @@ import {
   WEAPON_SPAWNS,
   WEAPON_DAMAGE,
 } from '../../config/constants';
-import { CollisionWorld, VaultTarget } from '../collision/CollisionWorld';
+import { PhysicsBridge, VaultTarget } from '../physics/PhysicsBridge';
 import { PlayerId, WeaponId } from '../../types/game';
 import { gameState } from '../../systems/gameState';
 import { soundManager } from '../../systems/sound';
@@ -162,12 +162,12 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
           stanceRef.current = 'crouching';
         } else if (stanceRef.current === 'crouching') {
           // Check overhead clearance before rising to standing
-          if (CollisionWorld.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_HEIGHT, PLAYER_CROUCH_HEIGHT)) {
+          if (PhysicsBridge.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_HEIGHT, PLAYER_CROUCH_HEIGHT)) {
             stanceRef.current = 'standing';
           }
         } else if (stanceRef.current === 'prone') {
           // Check overhead clearance before rising to crouching
-          if (CollisionWorld.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_CROUCH_HEIGHT, PLAYER_PRONE_HEIGHT)) {
+          if (PhysicsBridge.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_CROUCH_HEIGHT, PLAYER_PRONE_HEIGHT)) {
             stanceRef.current = 'crouching';
           }
         }
@@ -180,9 +180,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         pronePressedRef.current = true;
         if (stanceRef.current === 'prone') {
           // Check overhead clearance to rise to standing or crouching
-          if (CollisionWorld.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_HEIGHT, PLAYER_PRONE_HEIGHT)) {
+          if (PhysicsBridge.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_HEIGHT, PLAYER_PRONE_HEIGHT)) {
             stanceRef.current = 'standing';
-          } else if (CollisionWorld.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_CROUCH_HEIGHT, PLAYER_PRONE_HEIGHT)) {
+          } else if (PhysicsBridge.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_CROUCH_HEIGHT, PLAYER_PRONE_HEIGHT)) {
             stanceRef.current = 'crouching';
           }
         } else {
@@ -195,7 +195,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       // Space while crouched or prone attempts to stand up
       if (input.jump && isGrounded.current && (stanceRef.current === 'crouching' || stanceRef.current === 'prone')) {
         const curH = stanceRef.current === 'crouching' ? PLAYER_CROUCH_HEIGHT : PLAYER_PRONE_HEIGHT;
-        if (CollisionWorld.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_HEIGHT, curH)) {
+        if (PhysicsBridge.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_HEIGHT, curH)) {
           stanceRef.current = 'standing';
         }
       }
@@ -203,7 +203,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       // Sprint input while crouched or prone attempts to stand up if clear
       if (input.sprint && input.forward && isGrounded.current && (stanceRef.current === 'crouching' || stanceRef.current === 'prone')) {
         const curH = stanceRef.current === 'crouching' ? PLAYER_CROUCH_HEIGHT : PLAYER_PRONE_HEIGHT;
-        if (CollisionWorld.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_HEIGHT, curH)) {
+        if (PhysicsBridge.hasVerticalClearance(player.position[0], player.position[1], player.position[2], PLAYER_HEIGHT, curH)) {
           stanceRef.current = 'standing';
         }
       }
@@ -219,7 +219,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     ) {
       // Trigger when pressing Jump while moving forward toward an obstacle or wall
       if (input.jump) {
-        const candidate = CollisionWorld.findVaultableObstacle(
+        const candidate = PhysicsBridge.findVaultableObstacle(
           player.position[0],
           player.position[1],
           player.position[2],
@@ -414,9 +414,15 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         velocity.current.x = THREE.MathUtils.lerp(velocity.current.x, targetMoveX, delta * accelFactor);
         velocity.current.z = THREE.MathUtils.lerp(velocity.current.z, targetMoveZ, delta * accelFactor);
 
+        // Snap idle velocities to zero when no keys are pressed to prevent drift
+        if (!hasMoveInput && Math.abs(velocity.current.x) < 0.01 && Math.abs(velocity.current.z) < 0.01) {
+          velocity.current.x = 0;
+          velocity.current.z = 0;
+        }
+
         // Continuous Capsule Collision Resolution with Stance-Specific Height & Step Traversal
         const capsuleHeight = isProne ? PLAYER_PRONE_HEIGHT : isCrouching ? PLAYER_CROUCH_HEIGHT : PLAYER_HEIGHT;
-        const resolved = CollisionWorld.resolveCapsuleMovement(
+        const resolved = PhysicsBridge.resolveCapsuleMovement(
           player.position[0],
           player.position[1],
           player.position[2],
@@ -435,7 +441,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         velocity.current.z = resolved.vz;
 
         // 8. JUMP, GRAVITY & GROUND/OBSTACLE TOP DETECTION
-        const groundHeight = CollisionWorld.getGroundHeight(
+        const groundHeight = PhysicsBridge.getGroundHeight(
           player.position[0],
           player.position[2],
           player.position[1],
@@ -777,7 +783,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     );
 
     // Camera Collision Raycast Against All Map Obstacles
-    const camClearanceDist = CollisionWorld.castCameraRay(targetPivot, desiredCamPos, 0.25);
+    const camClearanceDist = PhysicsBridge.castCameraRay(targetPivot, desiredCamPos, 0.25);
     const camRayDir = new THREE.Vector3().subVectors(desiredCamPos, targetPivot);
     const naturalDist = camRayDir.length();
 
@@ -789,7 +795,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     }
 
     // Keep camera safely above local terrain and obstacles (never near the feet or ground)
-    const terrainGroundY = CollisionWorld.getGroundHeight(
+    const terrainGroundY = PhysicsBridge.getGroundHeight(
       desiredCamPos.x,
       desiredCamPos.z,
       player.position[1]
@@ -802,7 +808,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     // When player is underwater, ensure camera view is fully submerged below the river water surface
     if (isUnderwater && gameState.activeMapId === 'jungle-ops') {
-      const riverWaterLevel = -1.35;
+      const riverWaterLevel = getRiverProfile(desiredCamPos.x, desiredCamPos.z).waterLevel;
       if (desiredCamPos.y > riverWaterLevel - 0.15) {
         desiredCamPos.y = riverWaterLevel - 0.15;
       }

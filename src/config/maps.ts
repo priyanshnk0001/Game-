@@ -1,8 +1,9 @@
 // Multi-Map Configuration & Definitions for Tactical Shooter
 
 import { MapDefinition, MapId } from '../types/game';
-import { CollisionBox } from '../game/collision/CollisionWorld';
-import { getRiverProfile, SECTOR02_RIVER_SPINE, SECTOR02_RIVER_CONFIG } from '../game/environment/river';
+import { CollisionBox } from '../game/physics/PhysicsBridge';
+import { getRiverProfile } from '../game/environment/river/RiverFlow';
+import { SECTOR02_RIVER_SPINE, SECTOR02_RIVER_CONFIG } from '../game/environment/river/riverConfig';
 
 export const BATTLE_AREA_OBSTACLES: CollisionBox[] = [
   // 1. Concrete Perimeter Walls (56m x 4m x 0.8m)

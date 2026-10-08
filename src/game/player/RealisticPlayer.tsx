@@ -6,7 +6,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { PlayerState } from '../../types/game';
 import { WEAPON_SPAWNS } from '../../config/constants';
 import { RealisticWeapon } from '../weapons/RealisticWeapon';
-import { CollisionWorld } from '../collision/CollisionWorld';
+import { PhysicsBridge } from '../physics/PhysicsBridge';
 
 interface RealisticPlayerProps {
   player: PlayerState;
@@ -223,11 +223,12 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       rootGroupRef.current.rotation.y = player.rotationY;
     }
 
-    // Measure ground velocity and speed
-    const currentPos = _v0.set(...player.position);
-    const distMoved = currentPos.distanceTo(prevPosRef.current);
-    prevPosRef.current.copy(currentPos);
-    const speed = distMoved / Math.max(0.0001, delta);
+    // Measure horizontal ground velocity and speed (ignoring vertical movement)
+    const dx = player.position[0] - prevPosRef.current.x;
+    const dz = player.position[2] - prevPosRef.current.z;
+    const horizontalDistMoved = Math.hypot(dx, dz);
+    prevPosRef.current.set(...player.position);
+    const speed = horizontalDistMoved / Math.max(0.0001, delta);
     const isMoving = speed > 0.12 && !player.isDead;
     const isSprinting = player.isSprinting && isMoving && speed > 2.5;
 
@@ -400,7 +401,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
         cp.bone.getWorldPosition(_contactPos);
         const lowestY = _contactPos.y - cp.radius;
-        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
         const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
 
         if (deltaToTarget < minDelta) {
@@ -414,7 +415,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         b.leftFoot.getWorldPosition(_v1);
         _contactPos.add(_v1).multiplyScalar(0.5);
         const lowestY = _contactPos.y - 0.065;
-        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
         const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
         if (deltaToTarget < minDelta) {
           minDelta = deltaToTarget;
@@ -425,7 +426,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         b.rightFoot.getWorldPosition(_v1);
         _contactPos.add(_v1).multiplyScalar(0.5);
         const lowestY = _contactPos.y - 0.065;
-        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
         const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
         if (deltaToTarget < minDelta) {
           minDelta = deltaToTarget;
@@ -434,13 +435,15 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
       if (!isFinite(minDelta)) return;
 
+      const clampedDelta = Math.max(-0.12, Math.min(0.12, minDelta));
+
       if (player.isGrounded || player.isDead) {
         // When grounded or dead, vertically place the character so the lowest body/foot contact point rests naturally on the existing ground
-        characterGroupRef.current.position.y -= minDelta;
+        characterGroupRef.current.position.y -= clampedDelta;
         characterGroupRef.current.updateMatrixWorld(true);
-      } else if (minDelta < 0) {
+      } else if (clampedDelta < 0) {
         // While airborne, only prevent clipping into terrain surfaces
-        characterGroupRef.current.position.y -= minDelta;
+        characterGroupRef.current.position.y -= clampedDelta;
         characterGroupRef.current.updateMatrixWorld(true);
       }
     };

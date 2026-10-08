@@ -12,6 +12,9 @@ import { DecalManager } from './combat/DecalManager';
 import { PlayerController } from './players/PlayerController';
 import { CollisionDebugVisualizer } from './collision/CollisionDebugVisualizer';
 import { AimDebugMarker } from './combat/AimDebugMarker';
+import { Physics } from '@react-three/rapier';
+import { PhysicsBridgeSync } from './physics/PhysicsBridge';
+import { MapColliders } from './physics/MapColliders';
 import { WeaponId } from '../types/game';
 
 interface SceneProps {
@@ -76,46 +79,52 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
         color={sky.skyBounceColor}
       />
 
-      {/* 3. Believable Tactical Combat Environment Map */}
-      {activeMapId === 'battle-area' && <TacticalMap />}
-      {activeMapId === 'jungle-ops' && <JungleMap />}
-      {activeMapId === 'snow-ops' && <SnowMap />}
+      {/* Central Rapier Physics World */}
+      <Physics gravity={[0, -20, 0]}>
+        <PhysicsBridgeSync />
+        <MapColliders mapId={activeMapId} />
 
-      {/* 4. Realistic Ground Weapons resting on gear crates (Hidden in Sector-02 cleanup) */}
-      {activeMapId !== 'jungle-ops' && (
+        {/* 3. Believable Tactical Combat Environment Map */}
+        {activeMapId === 'battle-area' && <TacticalMap />}
+        {activeMapId === 'jungle-ops' && <JungleMap />}
+        {activeMapId === 'snow-ops' && <SnowMap />}
+
+        {/* 4. Realistic Ground Weapons resting on gear crates (Hidden in Sector-02 cleanup) */}
+        {activeMapId !== 'jungle-ops' && (
+          <Suspense fallback={null}>
+            <RealisticWeaponPickup item={state.groundWeapons.gun1} />
+            <RealisticWeaponPickup item={state.groundWeapons.gun2} />
+          </Suspense>
+        )}
+
+        {/* 5. Realistic Rigged Vanguard Tactical Soldiers */}
         <Suspense fallback={null}>
-          <RealisticWeaponPickup item={state.groundWeapons.gun1} />
-          <RealisticWeaponPickup item={state.groundWeapons.gun2} />
+          <RealisticPlayer
+            player={state.players.player1}
+            isLocal={activeId === 'player1'}
+          />
+          <RealisticPlayer
+            player={state.players.player2}
+            isLocal={activeId === 'player2'}
+          />
         </Suspense>
-      )}
 
-      {/* 5. Realistic Rigged Vanguard Tactical Soldiers */}
-      <Suspense fallback={null}>
-        <RealisticPlayer
-          player={state.players.player1}
-          isLocal={activeId === 'player1'}
+        {/* 6. High-Velocity Bullet Tracers and Impact Sparks */}
+        <BulletManager bullets={state.bullets} />
+
+        {/* 7. Bullet Impact Marks / Decals on Solid Surfaces */}
+        <DecalManager decals={state.decals} />
+
+        {/* 8. Tactical Third-Person Player Controller */}
+        <PlayerController
+          activeId={activeId}
+          onNearWeaponChange={onNearWeaponChange}
         />
-        <RealisticPlayer
-          player={state.players.player2}
-          isLocal={activeId === 'player2'}
-        />
-      </Suspense>
-
-      {/* 6. High-Velocity Bullet Tracers and Impact Sparks */}
-      <BulletManager bullets={state.bullets} />
-
-      {/* 7. Bullet Impact Marks / Decals on Solid Surfaces */}
-      <DecalManager decals={state.decals} />
-
-      {/* 8. Tactical Third-Person Player Controller */}
-      <PlayerController
-        activeId={activeId}
-        onNearWeaponChange={onNearWeaponChange}
-      />
-      {/* 8. Optional Collision Wireframe Visualizer (when ?debug=1 or VITE_GAME_DEBUG=true) */}
-      <CollisionDebugVisualizer />
-      {/* 9. Optional Aim Target Debug Marker (when ?debug=1 or VITE_GAME_DEBUG=true) */}
-      <AimDebugMarker />
+        {/* 8. Optional Collision Wireframe Visualizer (when ?debug=1 or VITE_GAME_DEBUG=true) */}
+        <CollisionDebugVisualizer />
+        {/* 9. Optional Aim Target Debug Marker (when ?debug=1 or VITE_GAME_DEBUG=true) */}
+        <AimDebugMarker />
+      </Physics>
     </>
   );
 };

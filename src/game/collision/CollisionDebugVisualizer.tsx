@@ -1,8 +1,13 @@
 import React, { useMemo } from 'react';
-import { CollisionWorld } from './CollisionWorld';
+import { PhysicsBridge } from '../physics/PhysicsBridge';
 import { gameState } from '../../systems/gameState';
 import { PLAYER_RADIUS, PLAYER_HEIGHT } from '../../config/constants';
 
+/**
+ * Rapier Physics Debug Wireframe Visualizer.
+ * Renders physical collision bounds from the authoritative PhysicsBridge
+ * when debug mode is enabled (?debug=1 or VITE_GAME_DEBUG=true).
+ */
 export const CollisionDebugVisualizer: React.FC = () => {
   const isDebug = useMemo(() => {
     return (
@@ -14,11 +19,12 @@ export const CollisionDebugVisualizer: React.FC = () => {
   if (!isDebug) return null;
 
   const player1 = gameState.players.player1;
+  const obstacles = PhysicsBridge.obstacles;
 
   return (
-    <group>
-      {/* Wireframe outlines for all registered collision boxes */}
-      {CollisionWorld.obstacles.map((obs) => (
+    <group name="RapierPhysicsDebugVisualizer">
+      {/* Wireframe outlines for all physical obstacle colliders */}
+      {obstacles.map((obs) => (
         <group
           key={`debug-${obs.id}`}
           position={obs.position}
@@ -31,7 +37,7 @@ export const CollisionDebugVisualizer: React.FC = () => {
         </group>
       ))}
 
-      {/* Local Player 1 Collision Capsule representation */}
+      {/* Local Player 1 Rapier Collision Capsule representation */}
       {player1 && (
         <group position={[player1.position[0], player1.position[1] + PLAYER_HEIGHT / 2, player1.position[2]]}>
           <mesh>

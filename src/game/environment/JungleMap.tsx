@@ -14,6 +14,8 @@ import {
 } from '../../config/maps';
 import { BirdSystem } from './birds';
 import { RiverSystem, getRiverProfile } from './river';
+import { RigidBody } from '@react-three/rapier';
+import { INTERACTION_GROUPS } from '../physics/PhysicsBridge';
 
 // ============================================================================
 // 1. PROCEDURAL 3D FOLIAGE GEOMETRY & ROAD TEXTURES
@@ -2913,7 +2915,9 @@ export const JungleMap: React.FC = () => {
       {/* ================================================================ */}
       {SECTOR02_CONFIG.ENABLE_GROUND && (
         <>
-          <mesh geometry={terrainGeometry} receiveShadow material={materials.ground} />
+          <RigidBody type="fixed" colliders="trimesh" collisionGroups={INTERACTION_GROUPS.STATIC}>
+            <mesh geometry={terrainGeometry} receiveShadow material={materials.ground} />
+          </RigidBody>
           {/* Dense 3D Tropical Undergrowth & Ground Cover (Instanced with Full Road Clearance) */}
           {SECTOR02_CONFIG.ENABLE_SMALL_GROUND_VEGETATION && (
             <RealisticJungleGrassLayer

@@ -264,6 +264,7 @@ class InputManager {
     this.state.right = false;
     this.state.sprint = false;
     this.state.crouch = false;
+    this.state.prone = false;
     this.state.jump = false;
     this.state.reload = false;
     this.state.interact = false;

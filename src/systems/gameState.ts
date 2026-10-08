@@ -20,7 +20,7 @@ import {
 } from '../types/game';
 import { soundManager } from './sound';
 import { MAPS, MAP_OBSTACLES, getJungleTerrainHeight, validateJungleRoadClearance } from '../config/maps';
-import { CollisionWorld } from '../game/collision/CollisionWorld';
+import { PhysicsBridge } from '../game/physics/PhysicsBridge';
 import { SECTOR02_CONFIG } from '../game/environment/JungleMap';
 
 type Listener = () => void;
@@ -488,7 +488,7 @@ class GameStateManager {
       });
     }
 
-    CollisionWorld.setMap(obstacles, mapDef.bounds, terrainFn);
+    PhysicsBridge.setMap(obstacles, mapDef.bounds, terrainFn);
 
     if (mapId === 'jungle-ops') {
       const report = validateJungleRoadClearance(MAP_OBSTACLES['jungle-ops']);
