@@ -37,17 +37,25 @@ export interface WaterSystemProps {
 export const RIVER_SURFACE_Y_OFFSET = 0.65;
 
 /**
+ * Lateral expansion offset to widen the river water surface geometry (~2 to 3 units),
+ * expanding the water mesh horizontally so it sits flush against both sides of the terrain banks.
+ */
+export const RIVER_SURFACE_WIDTH_EXPANSION = 2.5;
+
+/**
  * Transforms / prepares water geometry for the Three.js Water system:
  * - Converts horizontal world-space meshes (such as the spline river ribbon) into
  *   local coordinate space where local normal is (0, 0, 1) and rotation.x = -PI/2
  *   aligns it with world horizontal plane at Y = config.waterLevel + yOffset.
  * - Raises Y-axis coordinate elements by yOffset (approx 0.65 units) so river fills closer to mud banks.
+ * - Expands horizontal width/radius laterally by lateralExpansion (~2.5 units) so water sits flush against terrain banks.
  * - Ensures aRiverParams attribute exists for wave damping and depth gradient calculations.
  */
 function prepareWaterGeometry(
   geom: THREE.BufferGeometry,
   waterLevel: number,
-  yOffset: number = RIVER_SURFACE_Y_OFFSET
+  yOffset: number = RIVER_SURFACE_Y_OFFSET,
+  lateralExpansion: number = RIVER_SURFACE_WIDTH_EXPANSION
 ): THREE.BufferGeometry {
   const localGeom = geom.clone();
   localGeom.computeBoundingBox();
@@ -57,15 +65,50 @@ function prepareWaterGeometry(
   const isWorldSpace = bb && Math.abs(bb.max.y - bb.min.y) < 10 && (bb.max.z - bb.min.z) > 10;
   if (isWorldSpace) {
     const pos = localGeom.attributes.position;
+    const uvAttr = localGeom.attributes.uv;
     const effectiveWaterLevel = waterLevel + yOffset;
-    for (let i = 0; i < pos.count; i++) {
-      const wx = pos.getX(i);
-      const wy = pos.getY(i) + yOffset;
-      const wz = pos.getZ(i);
-      // Map world coords (wx, wy, wz) to local coords (x_L, y_L, z_L):
-      // pos_world = (0, effectiveWaterLevel, 0) + R_x(-PI/2) * (x_L, y_L, z_L) = (x_L, effectiveWaterLevel + z_L, -y_L)
-      // Therefore: x_L = wx, y_L = -wz, z_L = wy - effectiveWaterLevel
-      pos.setXYZ(i, wx, -wz, wy - effectiveWaterLevel);
+    const RINGS = 15; // River geometry transverse ring density
+    const hasRings = pos.count % RINGS === 0;
+
+    if (hasRings && lateralExpansion > 0) {
+      const ringCount = pos.count / RINGS;
+      for (let r = 0; r < ringCount; r++) {
+        const baseIdx = r * RINGS;
+        const leftIdx = baseIdx;
+        const rightIdx = baseIdx + RINGS - 1;
+
+        const lx = pos.getX(leftIdx);
+        const lz = pos.getZ(leftIdx);
+        const rx = pos.getX(rightIdx);
+        const rz = pos.getZ(rightIdx);
+
+        const dx = rx - lx;
+        const dz = rz - lz;
+        const len = Math.hypot(dx, dz) || 1.0;
+        const nx = dx / len;
+        const nz = dz / len;
+
+        for (let j = 0; j < RINGS; j++) {
+          const idx = baseIdx + j;
+          const u = uvAttr ? uvAttr.getX(idx) : j / (RINGS - 1);
+          // Normalized lateral factor: -1.0 at left bank, 0.0 at center, +1.0 at right bank
+          const s = (u - 0.5) * 2.0;
+
+          // Expand horizontally along cross-river normal by lateralExpansion
+          const wx = pos.getX(idx) + nx * s * lateralExpansion;
+          const wy = pos.getY(idx) + yOffset;
+          const wz = pos.getZ(idx) + nz * s * lateralExpansion;
+
+          pos.setXYZ(idx, wx, -wz, wy - effectiveWaterLevel);
+        }
+      }
+    } else {
+      for (let i = 0; i < pos.count; i++) {
+        const wx = pos.getX(i);
+        const wy = pos.getY(i) + yOffset;
+        const wz = pos.getZ(i);
+        pos.setXYZ(i, wx, -wz, wy - effectiveWaterLevel);
+      }
     }
     pos.needsUpdate = true;
     localGeom.computeVertexNormals();
@@ -112,9 +155,10 @@ export const RealisticWaterSurface: React.FC<{
   const water = useMemo(() => {
     const yOffset = config.type === 'river' ? RIVER_SURFACE_Y_OFFSET : 0;
     const effectiveWaterLevel = config.waterLevel + yOffset;
+    const lateralExpansion = config.type === 'river' ? RIVER_SURFACE_WIDTH_EXPANSION : 0;
 
-    // 1. Prepare local geometry oriented for horizontal reflection plane raised by yOffset
-    const localGeom = prepareWaterGeometry(geometry, config.waterLevel, yOffset);
+    // 1. Prepare local geometry oriented for horizontal reflection plane raised by yOffset & expanded laterally
+    const localGeom = prepareWaterGeometry(geometry, config.waterLevel, yOffset, lateralExpansion);
 
     // 2. Load water normal map with smooth repeat wrapping
     const textureLoader = new THREE.TextureLoader();
