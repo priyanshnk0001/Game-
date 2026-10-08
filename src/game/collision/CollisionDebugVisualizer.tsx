@@ -24,18 +24,36 @@ export const CollisionDebugVisualizer: React.FC = () => {
   return (
     <group name="RapierPhysicsDebugVisualizer">
       {/* Wireframe outlines for all physical obstacle colliders */}
-      {obstacles.map((obs) => (
-        <group
-          key={`debug-${obs.id}`}
-          position={obs.position}
-          rotation={[0, obs.rotationY, 0]}
-        >
-          <mesh>
-            <boxGeometry args={obs.size} />
-            <meshBasicMaterial color="#10b981" wireframe transparent opacity={0.35} />
-          </mesh>
-        </group>
-      ))}
+      {obstacles.map((obs) => {
+        if (obs.type === 'tree' && obs.treeTiers && obs.treeTiers.length > 0) {
+          return (
+            <group
+              key={`debug-${obs.id}`}
+              position={obs.position}
+              rotation={[0, obs.rotationY, 0]}
+            >
+              {obs.treeTiers.map((tier, idx) => (
+                <mesh key={`tier-${idx}`} position={[0, tier.offsetY, 0]}>
+                  <cylinderGeometry args={[tier.radius, tier.radius, tier.halfHeight * 2, 16]} />
+                  <meshBasicMaterial color="#10b981" wireframe transparent opacity={0.35} />
+                </mesh>
+              ))}
+            </group>
+          );
+        }
+        return (
+          <group
+            key={`debug-${obs.id}`}
+            position={obs.position}
+            rotation={[0, obs.rotationY, 0]}
+          >
+            <mesh>
+              <boxGeometry args={obs.size} />
+              <meshBasicMaterial color="#10b981" wireframe transparent opacity={0.35} />
+            </mesh>
+          </group>
+        );
+      })}
 
       {/* Local Player 1 Rapier Collision Capsule representation */}
       {player1 && (

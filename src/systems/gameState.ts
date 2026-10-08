@@ -480,6 +480,7 @@ class GameStateManager {
       // Legitimate physical barriers (perimeter boundaries, off-road trees, etc.) remain fully functional.
       obstacles = obstacles.filter((obs) => {
         if (obs.id.startsWith('jungle_perim_')) return true;
+        if (obs.type === 'tree') return SECTOR02_CONFIG.ENABLE_TREES;
         if (obs.type === 'building' || obs.type === 'container' || obs.type === 'wall' || obs.type === 'barrier') return SECTOR02_CONFIG.ENABLE_STRUCTURES;
         if (obs.type === 'bunker' || obs.type === 'crate' || obs.type === 'pillar') return SECTOR02_CONFIG.ENABLE_PROPS;
         if (obs.type === 'rock' || obs.id.startsWith('log_')) return SECTOR02_CONFIG.ENABLE_ROCKS_AND_LOGS;

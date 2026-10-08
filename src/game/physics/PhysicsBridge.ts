@@ -5,12 +5,19 @@ import { useRapier } from '@react-three/rapier';
 export type RapierWorldInstance = ReturnType<typeof useRapier>['world'];
 export type RapierInstance = ReturnType<typeof useRapier>['rapier'];
 
+export interface TreeColliderTier {
+  halfHeight: number;
+  radius: number;
+  offsetY: number;
+}
+
 export interface CollisionBox {
   id: string;
   position: [number, number, number];
   size: [number, number, number];
   rotationY: number;
   type: 'wall' | 'barrier' | 'bunker' | 'container' | 'building' | 'crate' | 'pillar' | 'rock' | 'tree' | 'bridge';
+  treeTiers?: TreeColliderTier[];
 }
 
 export interface VaultTarget {
@@ -487,6 +494,38 @@ export class PhysicsBridge {
 
           if (curY >= topY - 0.02) continue;
           if (curY + height <= bottomY + 0.05) continue;
+
+          // Specialized cylindrical tier collision for tree trunks and buttress flares
+          if (obs.type === 'tree' && obs.treeTiers && obs.treeTiers.length > 0) {
+            for (const tier of obs.treeTiers) {
+              const tierCenterY = obs.position[1] + tier.offsetY;
+              const tierTop = tierCenterY + tier.halfHeight;
+              const tierBottom = tierCenterY - tier.halfHeight;
+              if (curY >= tierTop - 0.02) continue;
+              if (curY + height <= tierBottom + 0.05) continue;
+
+              const dx = nextX - obs.position[0];
+              const dz = nextZ - obs.position[2];
+              const distSq = dx * dx + dz * dz;
+              const totalR = tier.radius + radius;
+              if (distSq < totalR * totalR) {
+                hadCollision = true;
+                const dist = Math.sqrt(Math.max(1e-8, distSq));
+                const overlap = totalR - dist;
+                const nx = dist > 1e-6 ? dx / dist : 1;
+                const nz = dist > 1e-6 ? dz / dist : 0;
+
+                const dot = curVx * nx + curVz * nz;
+                if (dot < 0) {
+                  curVx -= dot * nx;
+                  curVz -= dot * nz;
+                }
+                nextX += nx * overlap;
+                nextZ += nz * overlap;
+              }
+            }
+            continue;
+          }
 
           const cos = Math.cos(obs.rotationY ?? 0);
           const sin = Math.sin(obs.rotationY ?? 0);

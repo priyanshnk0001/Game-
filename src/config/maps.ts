@@ -54,6 +54,76 @@ export const BATTLE_AREA_OBSTACLES: CollisionBox[] = [
   { id: 'tower_se', position: [24, 3.5, 24], size: [0.5, 7.0, 0.5], rotationY: 0, type: 'pillar' },
 ];
 
+export function getJungleTerrainHeight(x: number, z: number): number {
+  // 1. North Observation Ridge (x: -90..90, z: 110..240) - Prominent tactical hill rising to +8.5m
+  const dxRidge = (x - 0) / 75;
+  const dzRidge = (z - 175) / 55;
+  const ridgeDistSq = dxRidge * dxRidge + dzRidge * dzRidge;
+  const ridgeHeight = ridgeDistSq < 1.0 ? Math.cos(Math.sqrt(ridgeDistSq) * (Math.PI / 2)) * 8.5 : 0;
+
+  // 2. Rural Plateau (x: 65..195, z: 65..195) - Raised terrace at +3.2m
+  const dxVillage = (x - 130) / 65;
+  const dzVillage = (z - 130) / 65;
+  const villageDistSq = dxVillage * dxVillage + dzVillage * dzVillage;
+  const villageHeight = villageDistSq < 1.0 ? Math.cos(Math.sqrt(villageDistSq) * (Math.PI / 2)) * 3.2 : 0;
+
+  // 4. Southeast Farmland Rolling Knolls (x: 60..180, z: -180..-60) - Gentle agricultural slopes (+2.5m)
+  const dxFarm = (x - 120) / 60;
+  const dzFarm = (z - (-120)) / 60;
+  const farmDistSq = dxFarm * dxFarm + dzFarm * dzFarm;
+  const farmHeight = farmDistSq < 1.0 ? Math.cos(Math.sqrt(farmDistSq) * (Math.PI / 2)) * 2.5 : 0;
+
+  // 5. Northwest Ancient Ruins Hillock (x: -180..-60, z: 60..180) - Rises to +3.0m
+  const dxRuins = (x - (-120)) / 60;
+  const dzRuins = (z - 120) / 60;
+  const ruinsDistSq = dxRuins * dxRuins + dzRuins * dzRuins;
+  const ruinsHeight = ruinsDistSq < 1.0 ? Math.cos(Math.sqrt(ruinsDistSq) * (Math.PI / 2)) * 3.0 : 0;
+
+  // 6. Southwest FOB Alpha Clearing - Stabilized tactical platform at ~+1.2m
+  const dxFob = (x - (-130)) / 65;
+  const dzFob = (z - (-130)) / 65;
+  const fobDistSq = dxFob * dxFob + dzFob * dzFob;
+  const fobPlatform = fobDistSq < 1.0 ? Math.cos(Math.sqrt(fobDistSq) * (Math.PI / 2)) * 1.2 : 0;
+
+  // 7. Continuous Natural Micro-Relief (Undulating Jungle Floor across 500m)
+  const groundRoll =
+    Math.sin(x * 0.024 + z * 0.015) * 0.75 +
+    Math.cos(x * 0.015 - z * 0.024) * 0.65;
+
+  const inlandLandHeight = Math.max(0.45, 1.0 + ridgeHeight + villageHeight + farmHeight + ruinsHeight + fobPlatform + groundRoll);
+
+  // 8. Natural River Bed Channel & Sloping River Banks
+  const riverProfile = getRiverProfile(x, z);
+  if (riverProfile.isInsideRiver) {
+    // Carved riverbed channel beneath the water surface (meeting waterLevel at banks, dropping in center)
+    const bedRipple = Math.sin(x * 0.18 + z * 0.14) * 0.12;
+    return riverProfile.bedElevation + bedRipple;
+  } else if (riverProfile.isInsideBank) {
+    // Natural sloping riverbank connecting inland terrain down to water surface (-1.35m)
+    const t = riverProfile.bankT; // 0.0 at waterline, 1.0 at jungle verge
+    const smoothT = t * t * (3.0 - 2.0 * t); // Hermite smoothstep
+    return inlandLandHeight * smoothT + riverProfile.waterLevel * (1.0 - smoothT);
+  }
+
+  return inlandLandHeight;
+}
+
+/**
+ * Accurately determines tree base Y coordinate by evaluating terrain slope drop across the tree base flare.
+ * Ensures the lowest point of the tree root flare firmly enters the terrain with zero visible air gaps.
+ */
+export function getTreePlacementY(treeX: number, treeZ: number, baseRadius = 2.0): number {
+  const centerH = getJungleTerrainHeight(treeX, treeZ);
+  let minH = centerH;
+  for (let a = 0; a < 8; a++) {
+    const ang = (a / 8) * Math.PI * 2;
+    const h = getJungleTerrainHeight(treeX + Math.cos(ang) * baseRadius, treeZ + Math.sin(ang) * baseRadius);
+    if (h < minH) minH = h;
+  }
+  const slopeDrop = centerH - minH;
+  return centerH - slopeDrop * 0.5;
+}
+
 export const JUNGLE_OPS_OBSTACLES: CollisionBox[] = [
   // 1. Natural Outer Perimeter Boundary (500m x 500m Region: -250 to +250)
   { id: 'jungle_perim_n', position: [0, 6.0, -250], size: [500, 12.0, 4.0], rotationY: 0, type: 'wall' },
@@ -61,55 +131,54 @@ export const JUNGLE_OPS_OBSTACLES: CollisionBox[] = [
   { id: 'jungle_perim_w', position: [-250, 6.0, 0], size: [4.0, 12.0, 500], rotationY: 0, type: 'wall' },
   { id: 'jungle_perim_e', position: [250, 6.0, 0], size: [4.0, 12.0, 500], rotationY: 0, type: 'wall' },
 
-  // 2. Southwest Tactical Compound: "FOB Sabre" (South of Main Road corridor, 0 road violations)
-  { id: 'fob_hq_container', position: [-52, 1.3, -60], size: [12.0, 2.6, 2.5], rotationY: 0.15, type: 'container' },
-  { id: 'fob_armory_container', position: [-38, 1.3, -62], size: [6.5, 2.6, 2.5], rotationY: -0.2, type: 'container' },
-  { id: 'fob_command_shelter', position: [-68, 1.8, -34], size: [8.0, 3.6, 6.0], rotationY: 0.4, type: 'building' },
-  { id: 'fob_sandbag_front', position: [-46, 0.6, -58], size: [8.0, 1.2, 0.9], rotationY: 0.15, type: 'bunker' },
-  { id: 'fob_sandbag_east', position: [-26, 0.6, -48], size: [8.0, 1.2, 0.9], rotationY: -0.2, type: 'bunker' },
-  { id: 'fob_sandbag_flank', position: [-68, 0.6, -62], size: [0.9, 1.2, 12.0], rotationY: 0, type: 'bunker' },
-  { id: 'fob_ammo_pallet_1', position: [-54, 0.7, -56], size: [2.8, 1.4, 2.4], rotationY: 0.1, type: 'crate' },
-  { id: 'fob_ammo_pallet_2', position: [-38, 0.7, -56], size: [2.4, 1.4, 2.2], rotationY: -0.3, type: 'crate' },
-  { id: 'fob_fuel_depot', position: [-60, 0.6, -64], size: [3.5, 1.2, 2.5], rotationY: 0, type: 'container' },
-  { id: 'fob_radio_mast', position: [-68, 5.0, -56], size: [0.6, 10.0, 0.6], rotationY: 0, type: 'pillar' },
-  { id: 'tower_fob_sentry', position: [-22, 3.0, -42], size: [4.2, 6.0, 4.2], rotationY: 0.3, type: 'building' },
+  // 2. Southwest Tactical Compound: "FOB Sabre" (Exact match with JungleMap.tsx visual structures)
+  { id: 'fob_hq_container', position: [-52, getJungleTerrainHeight(-52, -56) + 1.3, -56], size: [12.0, 2.6, 2.5], rotationY: 0.15, type: 'container' },
+  { id: 'fob_armory_container', position: [-38, getJungleTerrainHeight(-38, -62) + 1.3, -62], size: [6.5, 2.6, 2.5], rotationY: -0.2, type: 'container' },
+  { id: 'fob_command_shelter', position: [-68, getJungleTerrainHeight(-68, -40) + 1.8, -40], size: [8.0, 3.6, 6.0], rotationY: 0.4, type: 'building' },
+  { id: 'tower_fob_sentry', position: [-22, getJungleTerrainHeight(-22, -42) + 3.1, -42], size: [4.2, 6.2, 4.2], rotationY: 0.3, type: 'building' },
+  { id: 'fob_sandbag_front', position: [-46, getJungleTerrainHeight(-46, -50) + 0.6, -50], size: [8.0, 1.2, 0.9], rotationY: 0.1, type: 'bunker' },
+  { id: 'fob_sandbag_east', position: [-26, getJungleTerrainHeight(-26, -48) + 0.6, -48], size: [8.0, 1.2, 0.9], rotationY: -0.2, type: 'bunker' },
+  { id: 'fob_sandbag_flank', position: [-68, getJungleTerrainHeight(-68, -58) + 0.6, -58], size: [0.9, 1.2, 12.0], rotationY: 0, type: 'bunker' },
+  { id: 'fob_ammo_pallet_1', position: [-54, getJungleTerrainHeight(-54, -52) + 0.5, -52], size: [2.4, 1.0, 2.0], rotationY: 0.15, type: 'crate' },
+  { id: 'fob_ammo_pallet_2', position: [-38, getJungleTerrainHeight(-38, -56) + 0.5, -56], size: [2.4, 1.0, 2.0], rotationY: -0.25, type: 'crate' },
+  { id: 'fob_fuel_depot', position: [-60, getJungleTerrainHeight(-60, -64) + 0.6, -64], size: [3.5, 1.2, 2.5], rotationY: 0, type: 'container' },
+  { id: 'fob_radio_mast', position: [-68, getJungleTerrainHeight(-68, -56) + 5.0, -56], size: [0.6, 10.0, 0.6], rotationY: 0, type: 'pillar' },
 
-  // 3. Central Creek Ravine & Timber Trestle Bridge (Railings flank outer edges of 6.5m walkable corridor; deck is walkable terrain)
-  { id: 'bridge_rail_left', position: [-3.8, 1.0, -0.6], size: [0.3, 0.9, 12.0], rotationY: Math.PI / 4, type: 'barrier' },
-  { id: 'bridge_rail_right', position: [3.8, 1.0, 0.6], size: [0.3, 0.9, 12.0], rotationY: Math.PI / 4, type: 'barrier' },
+  // 3. Central Creek Ravine & Timber Trestle Bridge
+  { id: 'bridge_rail_left', position: [-3.8, getJungleTerrainHeight(-3.8, -0.6) + 0.9, -0.6], size: [0.3, 0.9, 12.0], rotationY: Math.PI / 4, type: 'barrier' },
+  { id: 'bridge_rail_right', position: [3.8, getJungleTerrainHeight(3.8, 0.6) + 0.9, 0.6], size: [0.3, 0.9, 12.0], rotationY: Math.PI / 4, type: 'barrier' },
 
-  // 4. Northeast Main Town: "Ban Khao" (Generous road clearance for village paths)
-  { id: 'village_chief_house', position: [44, 2.8, 64], size: [8.5, 5.0, 7.5], rotationY: 0.15, type: 'building' },
-  { id: 'village_stilt_1', position: [60, 2.8, 38], size: [7.5, 4.0, 6.5], rotationY: -0.25, type: 'building' },
-  { id: 'village_market_shed', position: [56, 2.8, 16], size: [9.5, 3.6, 6.5], rotationY: 0.35, type: 'building' },
-  { id: 'village_stilt_2', position: [80, 2.8, 56], size: [7.0, 4.4, 7.0], rotationY: 0.08, type: 'building' },
-  { id: 'village_workshop_barn', position: [26, 2.8, 62], size: [8.0, 4.4, 9.0], rotationY: -0.18, type: 'building' },
-  { id: 'village_storage_shed', position: [50, 2.8, 74], size: [5.5, 3.0, 4.5], rotationY: 0.32, type: 'building' },
-  { id: 'village_wall_plaza', position: [28, 1.4, 44], size: [6.0, 1.2, 0.4], rotationY: 0.1, type: 'wall' },
-  { id: 'village_wall_east', position: [48, 1.4, 36], size: [0.4, 1.2, 8.0], rotationY: -0.1, type: 'wall' },
-  { id: 'village_fence_north', position: [52, 1.4, 68], size: [9.0, 1.0, 0.3], rotationY: 0.2, type: 'barrier' },
-  { id: 'village_cistern_tank', position: [30, 3.5, 42], size: [2.5, 5.0, 2.5], rotationY: 0, type: 'pillar' },
+  // 4. Northeast Main Town: "Ban Khao" (Exact match with JungleMap.tsx visual structures)
+  { id: 'village_chief_house', position: [44, getJungleTerrainHeight(44, 52) + 2.5, 52], size: [8.5, 5.0, 7.5], rotationY: 0.15, type: 'building' },
+  { id: 'village_stilt_1', position: [60, getJungleTerrainHeight(60, 38) + 1.6, 38], size: [7.5, 3.2, 6.5], rotationY: -0.25, type: 'building' },
+  { id: 'village_market_shed', position: [42, getJungleTerrainHeight(42, 22) + 1.8, 22], size: [9.5, 3.6, 6.5], rotationY: 0.35, type: 'building' },
+  { id: 'village_stilt_2', position: [66, getJungleTerrainHeight(66, 60) + 1.5, 60], size: [7.0, 3.0, 6.8], rotationY: 0.08, type: 'building' },
+  { id: 'village_workshop_barn', position: [26, getJungleTerrainHeight(26, 62) + 1.7, 62], size: [8.0, 3.4, 8.5], rotationY: -0.18, type: 'building' },
+  { id: 'village_storage_shed', position: [50, getJungleTerrainHeight(50, 74) + 1.3, 74], size: [5.5, 2.6, 4.5], rotationY: 0.32, type: 'building' },
+  { id: 'village_wall_plaza', position: [38, getJungleTerrainHeight(38, 44) + 0.6, 44], size: [8.0, 1.2, 0.4], rotationY: 0.1, type: 'wall' },
+  { id: 'village_wall_east', position: [54, getJungleTerrainHeight(54, 46) + 0.6, 46], size: [0.4, 1.2, 10.0], rotationY: -0.1, type: 'wall' },
+  { id: 'village_fence_north', position: [52, getJungleTerrainHeight(52, 68) + 0.5, 68], size: [9.0, 1.0, 0.3], rotationY: 0.2, type: 'barrier' },
+  { id: 'village_cistern_tank', position: [30, getJungleTerrainHeight(30, 42) + 2.5, 42], size: [2.5, 5.0, 2.5], rotationY: 0, type: 'pillar' },
 
-  // 5. Southeast Riverside Hamlet: "Ban Nam" & Farmland Terraces
-  { id: 'bannam_cottage_1', position: [36, 1.8, -24], size: [7.0, 3.8, 6.0], rotationY: 0.2, type: 'building' },
-  { id: 'bannam_cottage_2', position: [48, 1.8, -21], size: [6.5, 3.6, 6.0], rotationY: -0.15, type: 'building' },
-  { id: 'bannam_farm_barn', position: [68, 1.8, -58], size: [8.0, 4.2, 7.0], rotationY: -0.3, type: 'building' },
-  { id: 'bannam_fence_terrace', position: [42, 0.6, -68], size: [14.0, 1.0, 0.3], rotationY: 0.1, type: 'barrier' },
-  { id: 'bannam_hay_stack', position: [50, 1.0, -64], size: [3.2, 1.8, 2.8], rotationY: 0.4, type: 'barrier' },
+  // 5. Southeast Riverside Hamlet: "Ban Nam" & Farmland (Exact match with JungleMap.tsx visual structures)
+  { id: 'bannam_cottage_1', position: [36, getJungleTerrainHeight(36, -32) + 1.5, -32], size: [7.0, 3.0, 6.0], rotationY: 0.2, type: 'building' },
+  { id: 'bannam_cottage_2', position: [54, getJungleTerrainHeight(54, -36) + 1.5, -36], size: [7.0, 3.0, 6.0], rotationY: -0.15, type: 'building' },
+  { id: 'bannam_hay_stack', position: [50, getJungleTerrainHeight(50, -64) + 0.9, -64], size: [3.2, 1.8, 2.8], rotationY: 0.4, type: 'barrier' },
+  { id: 'bannam_fence_terrace', position: [42, getJungleTerrainHeight(42, -42) + 0.5, -42], size: [14.0, 1.0, 0.3], rotationY: 0.1, type: 'barrier' },
 
   // 6. Northwest Highland Ridge & Ancient Monastery Ruins
-  { id: 'tower_north_ridge', position: [0, 7.2, 76], size: [4.5, 7.5, 4.5], rotationY: 0.1, type: 'building' },
-  { id: 'monastery_ruin_shrine', position: [-50, 3.0, 48], size: [6.5, 2.6, 6.5], rotationY: 0.2, type: 'building' },
-  { id: 'monastery_pillar_1', position: [-53, 4.0, 45], size: [1.1, 5.0, 1.1], rotationY: 0, type: 'pillar' },
-  { id: 'monastery_pillar_2', position: [-47, 4.0, 51], size: [1.1, 5.0, 1.1], rotationY: 0, type: 'pillar' },
+  { id: 'tower_north_ridge', position: [0, getJungleTerrainHeight(0, 68) + 3.75, 68], size: [4.5, 7.5, 4.5], rotationY: 0.1, type: 'building' },
+  { id: 'monastery_ruin_shrine', position: [-50, getJungleTerrainHeight(-50, 48) + 1.3, 48], size: [6.5, 2.6, 6.5], rotationY: 0.2, type: 'building' },
+  { id: 'monastery_pillar_1', position: [-52.8, getJungleTerrainHeight(-50, 48) + 2.5, 45.2], size: [1.1, 5.0, 1.1], rotationY: 0, type: 'pillar' },
+  { id: 'monastery_pillar_2', position: [-47.2, getJungleTerrainHeight(-50, 48) + 2.5, 50.8], size: [1.1, 5.0, 1.1], rotationY: 0, type: 'pillar' },
 
-  // 7. Tactical Mountain Boulders & Natural Cover (Positioned outside road corridors)
-  { id: 'boulder_ridge_w', position: [-70, 2.2, 32], size: [5.5, 3.6, 5.0], rotationY: 0.4, type: 'rock' },
-  { id: 'boulder_deep_forest', position: [-38, 2.0, 65], size: [4.8, 3.0, 4.2], rotationY: -0.5, type: 'rock' },
-  { id: 'boulder_river_bend', position: [-20, 1.2, -8], size: [4.2, 2.8, 3.8], rotationY: 0.8, type: 'rock' },
-  { id: 'boulder_east_knoll', position: [72, 2.0, -42], size: [5.0, 3.2, 4.4], rotationY: 0.2, type: 'rock' },
-  { id: 'log_trail_ambush', position: [-44, 0.8, 22], size: [7.5, 1.0, 1.2], rotationY: 0.6, type: 'barrier' },
-  { id: 'log_deep_forest', position: [-62, 0.8, 60], size: [8.0, 1.0, 1.2], rotationY: -0.4, type: 'barrier' },
+  // 7. Tactical Mountain Boulders & Natural Cover (Exact match with JungleMap.tsx visual rocks and logs)
+  { id: 'boulder_ridge_w', position: [-70, getJungleTerrainHeight(-70, 32) + 1.2, 32], size: [4.4, 3.6, 4.4], rotationY: 0.4, type: 'rock' },
+  { id: 'boulder_deep_forest', position: [-38, getJungleTerrainHeight(-38, 65) + 1.2, 65], size: [4.8, 3.6, 4.8], rotationY: -0.5, type: 'rock' },
+  { id: 'boulder_river_bend', position: [-20, getJungleTerrainHeight(-20, -8) + 1.2, -8], size: [4.2, 3.2, 4.2], rotationY: 0.8, type: 'rock' },
+  { id: 'boulder_east_knoll', position: [72, getJungleTerrainHeight(72, -42) + 1.2, -42], size: [4.4, 3.6, 4.4], rotationY: 0.2, type: 'rock' },
+  { id: 'log_trail_ambush', position: [-44, getJungleTerrainHeight(-44, 22) + 0.5, 22], size: [7.5, 1.0, 1.2], rotationY: 0.6, type: 'barrier' },
+  { id: 'log_deep_forest', position: [-62, getJungleTerrainHeight(-62, 60) + 0.5, 60], size: [8.0, 1.0, 1.2], rotationY: -0.4, type: 'barrier' },
 ];
 
 export const SNOW_OPS_OBSTACLES: CollisionBox[] = [
@@ -339,11 +408,6 @@ export const MAPS: Record<MapId, MapDefinition> = {
   },
 };
 
-export const MAP_OBSTACLES: Record<MapId, CollisionBox[]> = {
-  'battle-area': BATTLE_AREA_OBSTACLES,
-  'jungle-ops': JUNGLE_OPS_OBSTACLES,
-  'snow-ops': SNOW_OPS_OBSTACLES,
-};
 
 // ============================================================================
 // SECTOR-02: UNIFIED HIERARCHICAL ROAD NETWORK (SINGLE SOURCE OF TRUTH)
@@ -618,76 +682,6 @@ export function validateJungleRoadClearance(obstacles: CollisionBox[]): { violat
   return { violations, details };
 }
 
-export function getJungleTerrainHeight(x: number, z: number): number {
-  // 1. North Observation Ridge (x: -90..90, z: 110..240) - Prominent tactical hill rising to +8.5m
-  const dxRidge = (x - 0) / 75;
-  const dzRidge = (z - 175) / 55;
-  const ridgeDistSq = dxRidge * dxRidge + dzRidge * dzRidge;
-  const ridgeHeight = ridgeDistSq < 1.0 ? Math.cos(Math.sqrt(ridgeDistSq) * (Math.PI / 2)) * 8.5 : 0;
-
-  // 2. Rural Plateau (x: 65..195, z: 65..195) - Raised terrace at +3.2m
-  const dxVillage = (x - 130) / 65;
-  const dzVillage = (z - 130) / 65;
-  const villageDistSq = dxVillage * dxVillage + dzVillage * dzVillage;
-  const villageHeight = villageDistSq < 1.0 ? Math.cos(Math.sqrt(villageDistSq) * (Math.PI / 2)) * 3.2 : 0;
-
-  // 4. Southeast Farmland Rolling Knolls (x: 60..180, z: -180..-60) - Gentle agricultural slopes (+2.5m)
-  const dxFarm = (x - 120) / 60;
-  const dzFarm = (z - (-120)) / 60;
-  const farmDistSq = dxFarm * dxFarm + dzFarm * dzFarm;
-  const farmHeight = farmDistSq < 1.0 ? Math.cos(Math.sqrt(farmDistSq) * (Math.PI / 2)) * 2.5 : 0;
-
-  // 5. Northwest Ancient Ruins Hillock (x: -180..-60, z: 60..180) - Rises to +3.0m
-  const dxRuins = (x - (-120)) / 60;
-  const dzRuins = (z - 120) / 60;
-  const ruinsDistSq = dxRuins * dxRuins + dzRuins * dzRuins;
-  const ruinsHeight = ruinsDistSq < 1.0 ? Math.cos(Math.sqrt(ruinsDistSq) * (Math.PI / 2)) * 3.0 : 0;
-
-  // 6. Southwest FOB Alpha Clearing - Stabilized tactical platform at ~+1.2m
-  const dxFob = (x - (-130)) / 65;
-  const dzFob = (z - (-130)) / 65;
-  const fobDistSq = dxFob * dxFob + dzFob * dzFob;
-  const fobPlatform = fobDistSq < 1.0 ? Math.cos(Math.sqrt(fobDistSq) * (Math.PI / 2)) * 1.2 : 0;
-
-  // 7. Continuous Natural Micro-Relief (Undulating Jungle Floor across 500m)
-  const groundRoll =
-    Math.sin(x * 0.024 + z * 0.015) * 0.75 +
-    Math.cos(x * 0.015 - z * 0.024) * 0.65;
-
-  const inlandLandHeight = Math.max(0.45, 1.0 + ridgeHeight + villageHeight + farmHeight + ruinsHeight + fobPlatform + groundRoll);
-
-  // 8. Natural River Bed Channel & Sloping River Banks
-  const riverProfile = getRiverProfile(x, z);
-  if (riverProfile.isInsideRiver) {
-    // Carved riverbed channel beneath the water surface (meeting waterLevel at banks, dropping in center)
-    const bedRipple = Math.sin(x * 0.18 + z * 0.14) * 0.12;
-    return riverProfile.bedElevation + bedRipple;
-  } else if (riverProfile.isInsideBank) {
-    // Natural sloping riverbank connecting inland terrain down to water surface (-1.35m)
-    const t = riverProfile.bankT; // 0.0 at waterline, 1.0 at jungle verge
-    const smoothT = t * t * (3.0 - 2.0 * t); // Hermite smoothstep
-    return inlandLandHeight * smoothT + riverProfile.waterLevel * (1.0 - smoothT);
-  }
-
-  return inlandLandHeight;
-}
-
-/**
- * Accurately determines tree base Y coordinate by evaluating terrain slope drop across the tree base flare.
- * Ensures the lowest point of the tree root flare firmly enters the terrain with zero visible air gaps.
- */
-export function getTreePlacementY(treeX: number, treeZ: number, baseRadius = 2.0): number {
-  const centerH = getJungleTerrainHeight(treeX, treeZ);
-  let minH = centerH;
-  for (let a = 0; a < 8; a++) {
-    const ang = (a / 8) * Math.PI * 2;
-    const h = getJungleTerrainHeight(treeX + Math.cos(ang) * baseRadius, treeZ + Math.sin(ang) * baseRadius);
-    if (h < minH) minH = h;
-  }
-  const slopeDrop = centerH - minH;
-  return centerH - slopeDrop * 0.5;
-}
-
 // River System Constants (Sector-02 Ravine Creek - derived from reusable riverConfig)
 export const RIVER_SPINE: [number, number][] = SECTOR02_RIVER_SPINE;
 export const RIVER_WATER_Y = SECTOR02_RIVER_CONFIG.waterLevel;
@@ -799,4 +793,240 @@ export function getFilteredJungleTrees(): {
     perimeter: RAW_JUNGLE_TREES.perimeter,
   };
 }
+
+/**
+ * Derives authoritative physical collision boxes for all tree trunks in Sector-02 Jungle.
+ * Ensures player collision, camera raycasts, and bullet hitscans recognize every solid tree.
+ */
+interface TreeTierSpec {
+  yStart: number;
+  yEnd: number;
+  radius: number;
+}
+
+function buildTreeTiers(
+  totalHeight: number,
+  specs: TreeTierSpec[]
+): { tiers: { halfHeight: number; radius: number; offsetY: number }[]; maxRadius: number } {
+  let maxRadius = 0;
+  const tiers = specs.map((s) => {
+    const h = s.yEnd - s.yStart;
+    const halfHeight = Math.max(0.1, h / 2);
+    const offsetY = (s.yStart + s.yEnd - totalHeight) / 2;
+    if (s.radius > maxRadius) maxRadius = s.radius;
+    return { halfHeight, radius: s.radius, offsetY };
+  });
+  return { tiers, maxRadius };
+}
+
+/**
+ * Derives authoritative physical collision boxes and compound cylinder colliders
+ * for all tree trunks and buttress root flares in Sector-02 Jungle.
+ * Ensures player collision, camera raycasts, and bullet hitscans recognize every solid tree.
+ */
+export function getJungleTreeObstacles(): CollisionBox[] {
+  const trees = getFilteredJungleTrees();
+  const result: CollisionBox[] = [];
+
+  // 1. Dominant Rainforest Emergent Trees (5-lobed organic buttress base)
+  for (let i = 0; i < trees.emergent.length; i++) {
+    const [tx, tz] = trees.emergent[i];
+    const scale = 0.9 + (i % 3) * 0.2;
+    const rawHeight = 11.0 + (i % 4) * 2.0;
+    const totalHeight = rawHeight * scale;
+    const groundY = getTreePlacementY(tx, tz, 2.2 * scale);
+    const { tiers, maxRadius } = buildTreeTiers(totalHeight, [
+      { yStart: -1.5 * scale, yEnd: 1.1 * scale, radius: 2.10 * scale },
+      { yStart: 1.1 * scale, yEnd: 2.4 * scale, radius: 1.35 * scale },
+      { yStart: 2.4 * scale, yEnd: totalHeight, radius: 0.75 * scale },
+    ]);
+    result.push({
+      id: `tree_emergent_${i}`,
+      position: [tx, groundY + totalHeight / 2, tz],
+      size: [maxRadius * 2, totalHeight, maxRadius * 2],
+      rotationY: 0,
+      type: 'tree',
+      treeTiers: tiers,
+    });
+  }
+
+  // 2. Dominant Mature Broadleaf Dome Canopy Trees (4-lobed wide buttress base)
+  for (let i = 0; i < trees.matureCanopy.length; i++) {
+    const [tx, tz] = trees.matureCanopy[i];
+    const scale = 0.95 + (i % 3) * 0.15;
+    const rawHeight = 10.5 + (i % 3) * 1.5;
+    const totalHeight = rawHeight * scale;
+    const groundY = getTreePlacementY(tx, tz, 2.4 * scale);
+    const { tiers, maxRadius } = buildTreeTiers(totalHeight, [
+      { yStart: -1.5 * scale, yEnd: 1.1 * scale, radius: 2.25 * scale },
+      { yStart: 1.1 * scale, yEnd: 2.4 * scale, radius: 1.45 * scale },
+      { yStart: 2.4 * scale, yEnd: totalHeight, radius: 0.90 * scale },
+    ]);
+    result.push({
+      id: `tree_mature_${i}`,
+      position: [tx, groundY + totalHeight / 2, tz],
+      size: [maxRadius * 2, totalHeight, maxRadius * 2],
+      rotationY: 0,
+      type: 'tree',
+      treeTiers: tiers,
+    });
+  }
+
+  // 3. Young Tropical Slender Understory Trees
+  for (let i = 0; i < trees.youngTropical.length; i++) {
+    const [tx, tz] = trees.youngTropical[i];
+    const scale = 0.9 + (i % 2) * 0.2;
+    const rawHeight = 5.8 + (i % 3) * 1.2;
+    const totalHeight = rawHeight * scale;
+    const groundY = getTreePlacementY(tx, tz, 1.6 * scale);
+    const { tiers, maxRadius } = buildTreeTiers(totalHeight, [
+      { yStart: -1.2 * scale, yEnd: 0.7 * scale, radius: 1.30 * scale },
+      { yStart: 0.7 * scale, yEnd: 1.6 * scale, radius: 0.70 * scale },
+      { yStart: 1.6 * scale, yEnd: totalHeight, radius: 0.32 * scale },
+    ]);
+    result.push({
+      id: `tree_young_${i}`,
+      position: [tx, groundY + totalHeight / 2, tz],
+      size: [maxRadius * 2, totalHeight, maxRadius * 2],
+      rotationY: 0,
+      type: 'tree',
+      treeTiers: tiers,
+    });
+  }
+
+  // 4. Scenic Jacaranda Purple Flowering Trees
+  for (let i = 0; i < trees.scenicJacaranda.length; i++) {
+    const [tx, tz] = trees.scenicJacaranda[i];
+    const scale = 0.95 + (i % 2) * 0.15;
+    const rawHeight = 9.2 + (i % 3) * 1.2;
+    const totalHeight = rawHeight * scale;
+    const groundY = getTreePlacementY(tx, tz, 1.9 * scale);
+    const { tiers, maxRadius } = buildTreeTiers(totalHeight, [
+      { yStart: -1.5 * scale, yEnd: 0.9 * scale, radius: 1.75 * scale },
+      { yStart: 0.9 * scale, yEnd: 2.0 * scale, radius: 1.10 * scale },
+      { yStart: 2.0 * scale, yEnd: totalHeight, radius: 0.55 * scale },
+    ]);
+    result.push({
+      id: `tree_jacaranda_${i}`,
+      position: [tx, groundY + totalHeight / 2, tz],
+      size: [maxRadius * 2, totalHeight, maxRadius * 2],
+      rotationY: 0,
+      type: 'tree',
+      treeTiers: tiers,
+    });
+  }
+
+  // 5. Rare Japanese Red Laceleaf Weeping Maples
+  for (let i = 0; i < trees.rareRedMaple.length; i++) {
+    const [tx, tz] = trees.rareRedMaple[i];
+    const scale = 1.05 + (i % 2) * 0.15;
+    const rawHeight = 3.4 + (i % 2) * 0.4;
+    const totalHeight = rawHeight * scale;
+    const groundY = getTreePlacementY(tx, tz, 1.5 * scale);
+    const { tiers, maxRadius } = buildTreeTiers(totalHeight, [
+      { yStart: -1.2 * scale, yEnd: 0.7 * scale, radius: 1.35 * scale },
+      { yStart: 0.7 * scale, yEnd: 1.6 * scale, radius: 0.75 * scale },
+      { yStart: 1.6 * scale, yEnd: totalHeight, radius: 0.32 * scale },
+    ]);
+    result.push({
+      id: `tree_redmaple_${i}`,
+      position: [tx, groundY + totalHeight / 2, tz],
+      size: [maxRadius * 2, totalHeight, maxRadius * 2],
+      rotationY: 0,
+      type: 'tree',
+      treeTiers: tiers,
+    });
+  }
+
+  // 6. Highland Conifer Spire Trees
+  for (let i = 0; i < trees.highlandConifers.length; i++) {
+    const [tx, tz] = trees.highlandConifers[i];
+    const scale = 0.95 + (i % 2) * 0.2;
+    const rawHeight = 12.5 + (i % 3) * 2.0;
+    const totalHeight = rawHeight * scale;
+    const groundY = getTreePlacementY(tx, tz, 1.4 * scale);
+    const { tiers, maxRadius } = buildTreeTiers(totalHeight, [
+      { yStart: -1.5 * scale, yEnd: 1.0 * scale, radius: 0.65 * scale },
+      { yStart: 1.0 * scale, yEnd: totalHeight, radius: 0.42 * scale },
+    ]);
+    result.push({
+      id: `tree_conifer_${i}`,
+      position: [tx, groundY + totalHeight / 2, tz],
+      size: [maxRadius * 2, totalHeight, maxRadius * 2],
+      rotationY: 0,
+      type: 'tree',
+      treeTiers: tiers,
+    });
+  }
+
+  // 7. Banyan Spreading Trees (Deep forest anchors with 8 aerial prop roots)
+  for (let i = 0; i < trees.banyans.length; i++) {
+    const [bx, bz] = trees.banyans[i];
+    const scale = 0.95 + (i % 2) * 0.2;
+    const totalHeight = 10.5 * scale;
+    const groundY = getTreePlacementY(bx, bz, 3.2 * scale);
+    const { tiers, maxRadius } = buildTreeTiers(totalHeight, [
+      { yStart: -1.5 * scale, yEnd: 1.2 * scale, radius: 2.65 * scale },
+      { yStart: 1.2 * scale, yEnd: 2.5 * scale, radius: 1.85 * scale },
+      { yStart: 2.5 * scale, yEnd: totalHeight, radius: 1.25 * scale },
+    ]);
+    result.push({
+      id: `tree_banyan_${i}`,
+      position: [bx, groundY + totalHeight / 2, bz],
+      size: [maxRadius * 2, totalHeight, maxRadius * 2],
+      rotationY: 0,
+      type: 'tree',
+      treeTiers: tiers,
+    });
+  }
+
+  // 8. Tropical Curved Palms
+  for (let i = 0; i < trees.palms.length; i++) {
+    const [px, pz] = trees.palms[i];
+    const rawHeight = 7.5 + (i % 3) * 1.5;
+    const totalHeight = rawHeight;
+    const groundY = getTreePlacementY(px, pz, 1.2);
+    const { tiers, maxRadius } = buildTreeTiers(totalHeight, [
+      { yStart: -1.5, yEnd: 1.0, radius: 0.65 },
+      { yStart: 1.0, yEnd: totalHeight, radius: 0.35 },
+    ]);
+    result.push({
+      id: `tree_palm_${i}`,
+      position: [px, groundY + totalHeight / 2, pz],
+      size: [maxRadius * 2, totalHeight, maxRadius * 2],
+      rotationY: 0,
+      type: 'tree',
+      treeTiers: tiers,
+    });
+  }
+
+  // 9. Dense Outer Perimeter Jungle Wall Trees
+  for (let i = 0; i < trees.perimeter.length; i++) {
+    const [coordX, coordZ] = trees.perimeter[i];
+    const scale = 1.35;
+    const totalHeight = 14.0 * scale;
+    const groundY = getTreePlacementY(coordX, coordZ, 2.6);
+    const { tiers, maxRadius } = buildTreeTiers(totalHeight, [
+      { yStart: -1.5 * scale, yEnd: 1.1 * scale, radius: 2.10 * scale },
+      { yStart: 1.1 * scale, yEnd: 2.4 * scale, radius: 1.35 * scale },
+      { yStart: 2.4 * scale, yEnd: totalHeight, radius: 0.75 * scale },
+    ]);
+    result.push({
+      id: `tree_perim_${i}`,
+      position: [coordX, groundY + totalHeight / 2, coordZ],
+      size: [maxRadius * 2, totalHeight, maxRadius * 2],
+      rotationY: 0,
+      type: 'tree',
+      treeTiers: tiers,
+    });
+  }
+
+  return result;
+}
+
+export const MAP_OBSTACLES: Record<MapId, CollisionBox[]> = {
+  'battle-area': BATTLE_AREA_OBSTACLES,
+  'jungle-ops': [...JUNGLE_OPS_OBSTACLES, ...getJungleTreeObstacles()],
+  'snow-ops': SNOW_OPS_OBSTACLES,
+};
 

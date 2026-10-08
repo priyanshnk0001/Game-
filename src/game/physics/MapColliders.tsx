@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { RigidBody, CuboidCollider } from '@react-three/rapier';
+import { RigidBody, CuboidCollider, CylinderCollider } from '@react-three/rapier';
 import { MAP_OBSTACLES } from '../../config/maps';
 import { MapId } from '../../types/game';
 import { CollisionBox, INTERACTION_GROUPS } from './PhysicsBridge';
@@ -21,6 +21,9 @@ export const MapColliders: React.FC<MapCollidersProps> = ({ mapId }) => {
     if (mapId === 'jungle-ops') {
       list = list.filter((obs: CollisionBox) => {
         if (obs.id.startsWith('jungle_perim_')) return true;
+        if (obs.type === 'tree') {
+          return SECTOR02_CONFIG.ENABLE_TREES;
+        }
         if (
           obs.type === 'building' ||
           obs.type === 'container' ||
@@ -67,10 +70,26 @@ export const MapColliders: React.FC<MapCollidersProps> = ({ mapId }) => {
             rotation={[0, rotY, 0]}
             userData={{ obstacle: obs, surfaceType }}
           >
-            <CuboidCollider
-              args={[halfX, halfY, halfZ]}
-              collisionGroups={INTERACTION_GROUPS.STATIC}
-            />
+            {obs.type === 'tree' && obs.treeTiers && obs.treeTiers.length > 0 ? (
+              obs.treeTiers.map((tier, idx) => (
+                <CylinderCollider
+                  key={`tier-${idx}`}
+                  args={[tier.halfHeight, tier.radius]}
+                  position={[0, tier.offsetY, 0]}
+                  collisionGroups={INTERACTION_GROUPS.STATIC}
+                />
+              ))
+            ) : obs.type === 'tree' || obs.type === 'pillar' ? (
+              <CylinderCollider
+                args={[halfY, Math.max(halfX, halfZ)]}
+                collisionGroups={INTERACTION_GROUPS.STATIC}
+              />
+            ) : (
+              <CuboidCollider
+                args={[halfX, halfY, halfZ]}
+                collisionGroups={INTERACTION_GROUPS.STATIC}
+              />
+            )}
           </RigidBody>
         );
       })}
