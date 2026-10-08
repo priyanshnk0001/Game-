@@ -4,6 +4,7 @@ import { MapDefinition, MapId } from '../types/game';
 import { CollisionBox } from '../game/physics/PhysicsBridge';
 import { getRiverProfile } from '../game/environment/river/RiverFlow';
 import { SECTOR02_RIVER_SPINE, SECTOR02_RIVER_CONFIG } from '../game/environment/river/riverConfig';
+import { getTestPondDepression } from '../game/environment/water/testPondConfig';
 
 export const BATTLE_AREA_OBSTACLES: CollisionBox[] = [
   // 1. Concrete Perimeter Walls (56m x 4m x 0.8m)
@@ -105,7 +106,10 @@ export function getJungleTerrainHeight(x: number, z: number): number {
     return inlandLandHeight * smoothT + riverProfile.waterLevel * (1.0 - smoothT);
   }
 
-  return inlandLandHeight;
+  // 9. Isolated Test Pond Ground Depression (Standalone Visual Test Feature near spawn)
+  const pondDepression = getTestPondDepression(x, z);
+
+  return inlandLandHeight + pondDepression;
 }
 
 /**

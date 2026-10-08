@@ -14,6 +14,7 @@ import {
 } from '../../config/maps';
 import { BirdSystem } from './birds';
 import { RiverSystem, getRiverProfile } from './river';
+import { TestPond } from './water/TestPond';
 import { RigidBody } from '@react-three/rapier';
 import { INTERACTION_GROUPS } from '../physics/PhysicsBridge';
 
@@ -2054,6 +2055,7 @@ export const SECTOR02_CONFIG = {
   ENABLE_PROPS: false,            // Crates, sandbags, containers, fuel drums, cistern, poles, dock
   ENABLE_ROCKS_AND_LOGS: false,   // Boulders, fallen logs
   ENABLE_RIVER: true,             // Procedural natural flowing river system
+  ENABLE_TEST_POND: true,         // Standalone realistic water test pond near player spawn
   ENABLE_WATER_AND_BRIDGE: false, // Legacy bridge flag (bridges to be added later)
   ENABLE_NON_TREE_VEGETATION: false, // Bamboo thickets, separate fern clusters
 };
@@ -2964,6 +2966,11 @@ export const JungleMap: React.FC = () => {
       {/* 3. PROCEDURAL NATURAL RIVER SYSTEM */}
       {/* ================================================================ */}
       {SECTOR02_CONFIG.ENABLE_RIVER && <RiverSystem />}
+
+      {/* ================================================================ */}
+      {/* 3B. ISOLATED REALISTIC WATER TEST POND (STANDALONE VISUAL TEST)  */}
+      {/* ================================================================ */}
+      {SECTOR02_CONFIG.ENABLE_TEST_POND && <TestPond />}
 
       {/* ================================================================ */}
       {/* 4. NORTHEAST MAIN TOWN: "BAN KHAO" (On Elevated +2.8m Plateau) */}
