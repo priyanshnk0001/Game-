@@ -393,7 +393,8 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         let targetMoveX = 0;
         let targetMoveZ = 0;
 
-        const hasMoveInput = inputX !== 0 || inputZ !== 0;
+        const hasMoveKeys = input.forward || input.backward || input.left || input.right;
+        const hasMoveInput = hasMoveKeys && (inputX !== 0 || inputZ !== 0);
 
         // Calculate normalized movement direction
         const moveDir = new THREE.Vector3();
@@ -402,20 +403,17 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         if (input.right) moveDir.add(cameraRight);
         if (input.left) moveDir.sub(cameraRight);
 
-        if (moveDir.lengthSq() > 0) {
+        if (hasMoveKeys && moveDir.lengthSq() > 0) {
           moveDir.normalize();
           targetMoveX = moveDir.x * targetSpeed;
           targetMoveZ = moveDir.z * targetSpeed;
           bobTimeRef.current += delta * (isSprinting ? 15 : isCrouching ? 8 : isProne ? 6 : 11);
-        }
 
-        // Smooth acceleration / deceleration
-        const accelFactor = hasMoveInput ? 14 : 16;
-        velocity.current.x = THREE.MathUtils.lerp(velocity.current.x, targetMoveX, delta * accelFactor);
-        velocity.current.z = THREE.MathUtils.lerp(velocity.current.z, targetMoveZ, delta * accelFactor);
-
-        // Snap idle velocities to zero when no keys are pressed to prevent drift
-        if (!hasMoveInput && Math.abs(velocity.current.x) < 0.01 && Math.abs(velocity.current.z) < 0.01) {
+          // Smooth acceleration during active movement
+          velocity.current.x = THREE.MathUtils.lerp(velocity.current.x, targetMoveX, delta * 14);
+          velocity.current.z = THREE.MathUtils.lerp(velocity.current.z, targetMoveZ, delta * 14);
+        } else {
+          // When forward, backward, left, or right keys are NOT pressed, instantly set horizontal linear velocity vectors to 0
           velocity.current.x = 0;
           velocity.current.z = 0;
         }
@@ -437,8 +435,13 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         player.position[0] = resolved.x;
         player.position[1] = resolved.y;
         player.position[2] = resolved.z;
-        velocity.current.x = resolved.vx;
-        velocity.current.z = resolved.vz;
+        if (!hasMoveKeys) {
+          velocity.current.x = 0;
+          velocity.current.z = 0;
+        } else {
+          velocity.current.x = resolved.vx;
+          velocity.current.z = resolved.vz;
+        }
 
         // 8. JUMP, GRAVITY & GROUND/OBSTACLE TOP DETECTION
         const groundHeight = PhysicsBridge.getGroundHeight(
