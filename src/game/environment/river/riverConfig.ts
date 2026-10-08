@@ -48,19 +48,19 @@ export const SECTOR02_RIVER_CONFIG: RiverConfig = {
     { x: -225, z: 175, width: 17.0, depth: 2.1 },  // Northwest entrance / estuary
     { x: -180, z: 140, width: 15.2, depth: 2.3 },  // Winding pass between knolls
     { x: -135, z: 105, width: 13.6, depth: 2.5 },  // Narrower swift channel
-    { x: -90,  z: 70,  width: 15.8, depth: 2.4 },  // Gentle bend south of Ancient Ruins
-    { x: -45,  z: 35,  width: 14.2, depth: 2.3 },  // Approach to center crossing
-    { x: 0,    z: 0,   width: 13.8, depth: 2.3 },  // Central valley crossing
-    { x: 45,   z: -35, width: 16.2, depth: 2.5 },  // Widening pool past crossing
-    { x: 90,   z: -72, width: 17.8, depth: 2.4 },  // Wide lazy meander near Ban Nam
-    { x: 135,  z: -108, width: 15.4, depth: 2.4 }, // Curving around farmland knolls
-    { x: 180,  z: -142, width: 14.0, depth: 2.5 }, // Approaching southeast valley
-    { x: 225,  z: -175, width: 16.8, depth: 2.1 }, // Southeast exit / estuary
+    { x: -90, z: 70, width: 15.8, depth: 2.4 },  // Gentle bend south of Ancient Ruins
+    { x: -45, z: 35, width: 14.2, depth: 2.3 },  // Approach to center crossing
+    { x: 0, z: 0, width: 13.8, depth: 2.3 },  // Central valley crossing
+    { x: 45, z: -35, width: 16.2, depth: 2.5 },  // Widening pool past crossing
+    { x: 90, z: -72, width: 17.8, depth: 2.4 },  // Wide lazy meander near Ban Nam
+    { x: 135, z: -108, width: 15.4, depth: 2.4 }, // Curving around farmland knolls
+    { x: 180, z: -142, width: 14.0, depth: 2.5 }, // Approaching southeast valley
+    { x: 225, z: -175, width: 16.8, depth: 2.1 }, // Southeast exit / estuary
   ],
   waterColor: {
-    shallow: '#2d6d6a', // Tropical freshwater shallows
-    deep: '#0e3448',    // Deep river channel
-    highlight: '#8ee0dc',
+    shallow: '#3B8F92', // Natural river shallow teal
+    deep: '#075078',    // Natural dark teal / blue-green deep water
+    highlight: '#69C7D6',
   },
 };
 

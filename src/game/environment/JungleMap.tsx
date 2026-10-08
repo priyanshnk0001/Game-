@@ -1,6 +1,8 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { gameState } from '../../systems/gameState';
 import {
   getJungleTerrainHeight,
   getTreePlacementY,
@@ -12,6 +14,8 @@ import {
 } from '../../config/maps';
 import { BirdSystem } from './birds';
 import { RiverSystem, getRiverProfile } from './river';
+import { RigidBody } from '@react-three/rapier';
+import { INTERACTION_GROUPS } from '../physics/PhysicsBridge';
 
 // ============================================================================
 // 1. PROCEDURAL 3D FOLIAGE GEOMETRY & ROAD TEXTURES
@@ -2055,6 +2059,30 @@ export const SECTOR02_CONFIG = {
 };
 
 export const JungleMap: React.FC = () => {
+  // Lightweight animated procedural sunlight caustics uniforms for underwater riverbed
+  const groundUniforms = useMemo(() => ({
+    uTime: { value: 0 },
+    uUnderwaterWeight: { value: 0 },
+    uCausticColor: { value: new THREE.Color('#98f5eb') },
+  }), []);
+
+  useFrame((state, delta) => {
+    const time = state.clock.getElapsedTime();
+    const camY = state.camera.position.y;
+    const activePlayer = gameState.players[gameState.activePlayerId];
+    const isPlayerUnderwater = activePlayer?.waterState === 'underwater';
+    const isCamUnderwater = camY < -1.35;
+    const isUnderwater = isPlayerUnderwater || isCamUnderwater;
+
+    const targetWeight = isUnderwater ? 1.0 : 0.0;
+    groundUniforms.uUnderwaterWeight.value = THREE.MathUtils.lerp(
+      groundUniforms.uUnderwaterWeight.value,
+      targetWeight,
+      Math.min(1.0, delta * 7.5)
+    );
+    groundUniforms.uTime.value = time;
+  });
+
   // PBR Textures & Materials
   const materials = useMemo(() => {
     const loader = new THREE.TextureLoader();
@@ -2080,6 +2108,41 @@ export const JungleMap: React.FC = () => {
     groundAO.wrapS = THREE.RepeatWrapping;
     groundAO.wrapT = THREE.RepeatWrapping;
     groundAO.repeat.set(60, 60);
+
+    // 1b. Real PBR Riverbed Textures: Ganges River Pebbles & Sandy Gravel (Poly Haven CC0)
+    const gangesPebblesDiffuse = loader.load('/assets/environment/riverbed/ganges_pebbles_diff.jpg');
+    gangesPebblesDiffuse.wrapS = THREE.RepeatWrapping;
+    gangesPebblesDiffuse.wrapT = THREE.RepeatWrapping;
+    gangesPebblesDiffuse.colorSpace = THREE.SRGBColorSpace;
+
+    const gangesPebblesNormal = loader.load('/assets/environment/riverbed/ganges_pebbles_nor.jpg');
+    gangesPebblesNormal.wrapS = THREE.RepeatWrapping;
+    gangesPebblesNormal.wrapT = THREE.RepeatWrapping;
+
+    const gangesPebblesRoughness = loader.load('/assets/environment/riverbed/ganges_pebbles_rough.jpg');
+    gangesPebblesRoughness.wrapS = THREE.RepeatWrapping;
+    gangesPebblesRoughness.wrapT = THREE.RepeatWrapping;
+
+    const gangesPebblesAO = loader.load('/assets/environment/riverbed/ganges_pebbles_ao.jpg');
+    gangesPebblesAO.wrapS = THREE.RepeatWrapping;
+    gangesPebblesAO.wrapT = THREE.RepeatWrapping;
+
+    const sandyGravelDiffuse = loader.load('/assets/environment/riverbed/sandy_gravel_diff.jpg');
+    sandyGravelDiffuse.wrapS = THREE.RepeatWrapping;
+    sandyGravelDiffuse.wrapT = THREE.RepeatWrapping;
+    sandyGravelDiffuse.colorSpace = THREE.SRGBColorSpace;
+
+    const sandyGravelNormal = loader.load('/assets/environment/riverbed/sandy_gravel_nor.jpg');
+    sandyGravelNormal.wrapS = THREE.RepeatWrapping;
+    sandyGravelNormal.wrapT = THREE.RepeatWrapping;
+
+    const sandyGravelRoughness = loader.load('/assets/environment/riverbed/sandy_gravel_rough.jpg');
+    sandyGravelRoughness.wrapS = THREE.RepeatWrapping;
+    sandyGravelRoughness.wrapT = THREE.RepeatWrapping;
+
+    const sandyGravelAO = loader.load('/assets/environment/riverbed/sandy_gravel_ao.jpg');
+    sandyGravelAO.wrapS = THREE.RepeatWrapping;
+    sandyGravelAO.wrapT = THREE.RepeatWrapping;
 
     // 2. Realistic Tropical Grass & Fern Textures (Poly Haven CC0)
     const grassDiffuse = loader.load('/assets/environment/grass/tropical_grass_diffuse.png');
@@ -2168,7 +2231,210 @@ export const JungleMap: React.FC = () => {
       roughness: 0.85,
       metalness: 0.02,
     });
-    // Road splat shader disabled — no onBeforeCompile for ground material
+
+    // PBR Riverbed Ground Textures: Ganges River Pebbles + Sandy Gravel with natural scale and dual-texture blending
+    ground.customProgramCacheKey = () => 'jungle_riverbed_textured_ground_v8';
+    ground.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = groundUniforms.uTime;
+      shader.uniforms.uUnderwaterWeight = groundUniforms.uUnderwaterWeight;
+      shader.uniforms.uCausticColor = groundUniforms.uCausticColor;
+      shader.uniforms.uGangesDiff = { value: gangesPebblesDiffuse };
+      shader.uniforms.uGangesNor = { value: gangesPebblesNormal };
+      shader.uniforms.uGangesRough = { value: gangesPebblesRoughness };
+      shader.uniforms.uGangesAO = { value: gangesPebblesAO };
+      shader.uniforms.uGravelDiff = { value: sandyGravelDiffuse };
+      shader.uniforms.uGravelNor = { value: sandyGravelNormal };
+      shader.uniforms.uGravelRough = { value: sandyGravelRoughness };
+      shader.uniforms.uGravelAO = { value: sandyGravelAO };
+
+      shader.vertexShader = `
+        attribute float aRiverWeight;
+        varying float vRiverWeight;
+        varying vec2 vPebbleUV1;
+        varying vec2 vPebbleUV2;
+        varying vec2 vGravelUV;
+        varying vec3 vGroundWorldPos;
+      ` + shader.vertexShader;
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+         vGroundWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+         vRiverWeight = aRiverWeight;
+         // Realistic physical scale: ~3cm to 8cm river pebbles, fine gravel grains
+         vPebbleUV1 = vGroundWorldPos.xz * 0.95;
+         vPebbleUV2 = vec2(vGroundWorldPos.x * 0.866 - vGroundWorldPos.z * 0.5, vGroundWorldPos.x * 0.5 + vGroundWorldPos.z * 0.866) * 0.82 + vec2(19.3, 37.1);
+         vGravelUV = vGroundWorldPos.xz * 1.65;`
+      );
+
+      shader.fragmentShader = `
+        varying vec3 vGroundWorldPos;
+        varying float vRiverWeight;
+        varying vec2 vPebbleUV1;
+        varying vec2 vPebbleUV2;
+        varying vec2 vGravelUV;
+        uniform sampler2D uGangesDiff;
+        uniform sampler2D uGangesNor;
+        uniform sampler2D uGangesRough;
+        uniform sampler2D uGangesAO;
+        uniform sampler2D uGravelDiff;
+        uniform sampler2D uGravelNor;
+        uniform sampler2D uGravelRough;
+        uniform sampler2D uGravelAO;
+        uniform float uTime;
+        uniform float uUnderwaterWeight;
+        uniform vec3 uCausticColor;
+
+        // Subtle, realistic sunlight caustics filtering through water (Reference 1 & 2)
+        float getRiverbedCaustic(vec2 p, float time) {
+          vec2 p1 = p * 1.5;
+          float t1 = time * 0.75;
+          vec2 d1 = vec2(sin(p1.y * 1.3 + t1), cos(p1.x * 1.3 - t1 * 0.8)) * 0.35;
+          vec2 uv1 = p1 + d1;
+          float w1 = sin(uv1.x * 2.5 + t1 * 0.5) * cos(uv1.y * 2.5 - t1 * 0.4);
+          float ridge1 = pow(1.0 - abs(w1), 3.5);
+
+          vec2 p2 = p * 2.7;
+          float t2 = time * 1.05;
+          vec2 d2 = vec2(cos(p2.y * 1.6 - t2), sin(p2.x * 1.6 + t2 * 0.6)) * 0.28;
+          vec2 uv2 = p2 + d2;
+          float w2 = sin(uv2.x * 3.0 - t2 * 0.7) * cos(uv2.y * 3.0 + t2 * 0.6);
+          float ridge2 = pow(1.0 - abs(w2), 3.2);
+
+          // Organic macro cluster variation so caustics pool in natural sunlight islands
+          float macro = sin(p.x * 0.45 + time * 0.20) * cos(p.y * 0.45 - time * 0.16) * 0.5 + 0.5;
+
+          float caustic = (ridge1 * 0.65 + ridge2 * 0.45) * (0.45 + 0.55 * macro);
+          return clamp(caustic, 0.0, 1.0);
+        }
+      ` + shader.fragmentShader;
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+        if (vRiverWeight > 0.001) {
+          // Organic riverbed flow noise distributing fine gravel runs & rounded pebble clusters
+          float bedNoise = sin(vGroundWorldPos.x * 0.12 + vGroundWorldPos.z * 0.09) * 0.45
+                         + cos(vGroundWorldPos.x * 0.24 - vGroundWorldPos.z * 0.21) * 0.35
+                         + sin(vGroundWorldPos.x * 0.55 + vGroundWorldPos.z * 0.48) * 0.20;
+          float pebbleMask = smoothstep(-0.25, 0.35, bedNoise);
+
+          // Dual-rotation sampling on Ganges River Pebbles to prevent tile repetition
+          float pebbleRotBlend = smoothstep(0.3, 0.7, sin(vGroundWorldPos.x * 0.15 + vGroundWorldPos.z * 0.12) * 0.5 + 0.5);
+          vec3 pDiff = mix(texture2D(uGangesDiff, vPebbleUV1).rgb, texture2D(uGangesDiff, vPebbleUV2).rgb, pebbleRotBlend);
+          vec3 gDiff = texture2D(uGravelDiff, vGravelUV).rgb;
+
+          // Natural fine sand/gravel base with scattered rounded river pebble clusters
+          vec3 rColor = mix(gDiff, pDiff, pebbleMask);
+
+          // Natural color variety: subtle mixture of grey, beige, brown tones (Reference 1 & 2)
+          float earthVar = sin(vGroundWorldPos.x * 0.08 - vGroundWorldPos.z * 0.06) * 0.5 + 0.5;
+          vec3 warmEarth = vec3(1.05, 1.02, 0.95);
+          vec3 coolSlate = vec3(0.96, 0.98, 1.02);
+          rColor *= mix(coolSlate, warmEarth, earthVar);
+
+          // Subtle natural freshwater algae / aquatic moss film on sheltered pebbles
+          float algaeNoise = sin(vGroundWorldPos.x * 0.42 + vGroundWorldPos.z * 0.38) * sin(vGroundWorldPos.x * 0.25 - vGroundWorldPos.z * 0.29) * 0.5 + 0.5;
+          float algaeMask = smoothstep(0.58, 0.88, algaeNoise);
+          rColor = mix(rColor, rColor * vec3(0.72, 0.88, 0.58), algaeMask * 0.22);
+
+          diffuseColor.rgb = mix(diffuseColor.rgb, rColor, vRiverWeight);
+        }`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+        #if defined( USE_NORMALMAP_TANGENTSPACE )
+        if (vRiverWeight > 0.001) {
+          float bedNoise = sin(vGroundWorldPos.x * 0.12 + vGroundWorldPos.z * 0.09) * 0.45
+                         + cos(vGroundWorldPos.x * 0.24 - vGroundWorldPos.z * 0.21) * 0.35
+                         + sin(vGroundWorldPos.x * 0.55 + vGroundWorldPos.z * 0.48) * 0.20;
+          float pebbleMask = smoothstep(-0.25, 0.35, bedNoise);
+          float pebbleRotBlend = smoothstep(0.3, 0.7, sin(vGroundWorldPos.x * 0.15 + vGroundWorldPos.z * 0.12) * 0.5 + 0.5);
+
+          vec3 pNorm1 = texture2D(uGangesNor, vPebbleUV1).xyz * 2.0 - 1.0;
+          vec3 pNorm2 = texture2D(uGangesNor, vPebbleUV2).xyz * 2.0 - 1.0;
+          vec3 pNorm = normalize(mix(pNorm1, pNorm2, pebbleRotBlend));
+
+          vec3 gNorm = texture2D(uGravelNor, vGravelUV).xyz * 2.0 - 1.0;
+          vec3 rNormMap = normalize(mix(gNorm, pNorm, pebbleMask));
+          rNormMap.xy *= 0.88;
+
+          vec3 rNormal = normalize(tbn * rNormMap);
+          normal = normalize(mix(normal, rNormal, vRiverWeight));
+        }
+        #endif`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+        if (vRiverWeight > 0.001) {
+          float bedNoise = sin(vGroundWorldPos.x * 0.12 + vGroundWorldPos.z * 0.09) * 0.45
+                         + cos(vGroundWorldPos.x * 0.24 - vGroundWorldPos.z * 0.21) * 0.35
+                         + sin(vGroundWorldPos.x * 0.55 + vGroundWorldPos.z * 0.48) * 0.20;
+          float pebbleMask = smoothstep(-0.25, 0.35, bedNoise);
+          float pebbleRotBlend = smoothstep(0.3, 0.7, sin(vGroundWorldPos.x * 0.15 + vGroundWorldPos.z * 0.12) * 0.5 + 0.5);
+
+          float pRough = mix(texture2D(uGangesRough, vPebbleUV1).r, texture2D(uGangesRough, vPebbleUV2).r, pebbleRotBlend);
+          float gRough = texture2D(uGravelRough, vGravelUV).r;
+          float rRough = mix(gRough, pRough, pebbleMask);
+
+          roughnessFactor = mix(roughnessFactor, rRough * 0.72, vRiverWeight);
+        }`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <aomap_fragment>',
+        `#include <aomap_fragment>
+        #ifdef USE_AOMAP
+        if (vRiverWeight > 0.001) {
+          float bedNoise = sin(vGroundWorldPos.x * 0.12 + vGroundWorldPos.z * 0.09) * 0.45
+                         + cos(vGroundWorldPos.x * 0.24 - vGroundWorldPos.z * 0.21) * 0.35
+                         + sin(vGroundWorldPos.x * 0.55 + vGroundWorldPos.z * 0.48) * 0.20;
+          float pebbleMask = smoothstep(-0.25, 0.35, bedNoise);
+          float pebbleRotBlend = smoothstep(0.3, 0.7, sin(vGroundWorldPos.x * 0.15 + vGroundWorldPos.z * 0.12) * 0.5 + 0.5);
+
+          float pAO = mix(texture2D(uGangesAO, vPebbleUV1).r, texture2D(uGangesAO, vPebbleUV2).r, pebbleRotBlend);
+          float gAO = texture2D(uGravelAO, vGravelUV).r;
+          float rAO = mix(gAO, pAO, pebbleMask);
+
+          float aoFactor = (rAO - 1.0) * aoMapIntensity + 1.0;
+          reflectedLight.indirectDiffuse *= mix(1.0, aoFactor, vRiverWeight);
+        }
+        #endif`
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <opaque_fragment>',
+        `
+        // Project SUBTLE, natural caustics & physical water absorption (NO glowing cyan/white floor)
+        if (uUnderwaterWeight > 0.005 && vGroundWorldPos.y < -1.35) {
+          float depthBelowWater = -1.35 - vGroundWorldPos.y;
+          float depthMask = smoothstep(0.04, 0.30, depthBelowWater);
+
+          float camDist = length(vViewPosition);
+          float distFade = clamp(1.0 - camDist / 30.0, 0.0, 1.0);
+          distFade = distFade * distFade;
+
+          float depthFade = clamp(1.0 - depthBelowWater * 0.25, 0.50, 1.0);
+
+          // Subtle, soft natural sunlight caustics (Reference 1 & 2)
+          float cPattern = getRiverbedCaustic(vGroundWorldPos.xz, uTime);
+          vec3 causticColor = vec3(0.92, 0.96, 0.92);
+          float intensity = cPattern * depthMask * uUnderwaterWeight * distFade * depthFade * 0.16;
+          outgoingLight += causticColor * intensity;
+
+          // Gentle distance-based red wavelength absorption (NO ADDITIVE GLOW)
+          float waterPath = camDist + depthBelowWater * 1.2;
+          float absorbFactor = clamp((waterPath - 1.5) / 18.0, 0.0, 0.50) * uUnderwaterWeight;
+          outgoingLight.r *= (1.0 - absorbFactor * 0.30);
+          outgoingLight.g *= (1.0 - absorbFactor * 0.10);
+        }
+        #include <opaque_fragment>`
+      );
+    };
 
     const tropicalGrass = new THREE.MeshStandardMaterial({
       map: grassDiffuse,
@@ -2501,6 +2767,7 @@ export const JungleMap: React.FC = () => {
 
     const pos = geom.attributes.position;
     const colors = new Float32Array(pos.count * 3);
+    const riverWeights = new Float32Array(pos.count);
 
     for (let i = 0; i < pos.count; i++) {
       const vx = pos.getX(i);
@@ -2545,24 +2812,31 @@ export const JungleMap: React.FC = () => {
         cb = cb * (1.0 - verge * 0.32) + 0.65 * verge * 0.32;
       }
 
-      // River bed & river bank transition coloring
+      // River bed & river bank transition coloring & riverbed texture weights
       const riverProfile = getRiverProfile(vx, vz);
       if (riverProfile.isInsideRiver) {
-        // Wet submerged riverbed silt, river sand & gravel
+        // Wet submerged riverbed: 1.0 on bed, feathering smoothly at water margin
         const crossT = riverProfile.crossT; // 0 at center, 1 at edge
-        cr = 0.28 + crossT * 0.12;
-        cg = 0.26 + crossT * 0.10;
-        cb = 0.22 + crossT * 0.08;
-      } else if (riverProfile.isInsideBank) {
-        // Moist muddy riverbank & dirt slope leading down to water
-        const bankT = riverProfile.bankT; // 0 at water, 1 at jungle verge
-        const smoothBank = bankT * bankT * (3.0 - 2.0 * bankT);
-        const wetBankR = 0.38;
-        const wetBankG = 0.35;
-        const wetBankB = 0.28;
-        cr = wetBankR * (1.0 - smoothBank) + cr * smoothBank;
-        cg = wetBankG * (1.0 - smoothBank) + cg * smoothBank;
-        cb = wetBankB * (1.0 - smoothBank) + cb * smoothBank;
+        const t = Math.max(0, Math.min(1, (crossT - 0.70) / 0.30));
+        riverWeights[i] = 1.0 - t * t * (3.0 - 2.0 * t);
+
+        // Keep vertex color natural pale/grey so riverbed PBR texture details remain clear under water
+        cr = 0.84 + crossT * 0.06;
+        cg = 0.84 + crossT * 0.06;
+        cb = 0.82 + crossT * 0.06;
+      } else {
+        riverWeights[i] = 0.0;
+        if (riverProfile.isInsideBank) {
+          // Moist muddy riverbank & dirt slope leading down to water
+          const bankT = riverProfile.bankT; // 0 at water, 1 at jungle verge
+          const smoothBank = bankT * bankT * (3.0 - 2.0 * bankT);
+          const wetBankR = 0.38;
+          const wetBankG = 0.35;
+          const wetBankB = 0.28;
+          cr = wetBankR * (1.0 - smoothBank) + cr * smoothBank;
+          cg = wetBankG * (1.0 - smoothBank) + cg * smoothBank;
+          cb = wetBankB * (1.0 - smoothBank) + cb * smoothBank;
+        }
       }
 
       colors[i * 3] = cr;
@@ -2571,6 +2845,7 @@ export const JungleMap: React.FC = () => {
     }
 
     geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geom.setAttribute('aRiverWeight', new THREE.BufferAttribute(riverWeights, 1));
     geom.computeVertexNormals();
     geom.setAttribute('uv2', geom.attributes.uv);
     return geom;
@@ -2640,7 +2915,9 @@ export const JungleMap: React.FC = () => {
       {/* ================================================================ */}
       {SECTOR02_CONFIG.ENABLE_GROUND && (
         <>
-          <mesh geometry={terrainGeometry} receiveShadow material={materials.ground} />
+          <RigidBody type="fixed" colliders="trimesh" collisionGroups={INTERACTION_GROUPS.STATIC}>
+            <mesh geometry={terrainGeometry} receiveShadow material={materials.ground} />
+          </RigidBody>
           {/* Dense 3D Tropical Undergrowth & Ground Cover (Instanced with Full Road Clearance) */}
           {SECTOR02_CONFIG.ENABLE_SMALL_GROUND_VEGETATION && (
             <RealisticJungleGrassLayer

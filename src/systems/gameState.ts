@@ -20,7 +20,7 @@ import {
 } from '../types/game';
 import { soundManager } from './sound';
 import { MAPS, MAP_OBSTACLES, getJungleTerrainHeight, validateJungleRoadClearance } from '../config/maps';
-import { CollisionWorld } from '../game/collision/CollisionWorld';
+import { PhysicsBridge } from '../game/physics/PhysicsBridge';
 import { SECTOR02_CONFIG } from '../game/environment/JungleMap';
 
 type Listener = () => void;
@@ -480,6 +480,7 @@ class GameStateManager {
       // Legitimate physical barriers (perimeter boundaries, off-road trees, etc.) remain fully functional.
       obstacles = obstacles.filter((obs) => {
         if (obs.id.startsWith('jungle_perim_')) return true;
+        if (obs.type === 'tree') return SECTOR02_CONFIG.ENABLE_TREES;
         if (obs.type === 'building' || obs.type === 'container' || obs.type === 'wall' || obs.type === 'barrier') return SECTOR02_CONFIG.ENABLE_STRUCTURES;
         if (obs.type === 'bunker' || obs.type === 'crate' || obs.type === 'pillar') return SECTOR02_CONFIG.ENABLE_PROPS;
         if (obs.type === 'rock' || obs.id.startsWith('log_')) return SECTOR02_CONFIG.ENABLE_ROCKS_AND_LOGS;
@@ -488,7 +489,7 @@ class GameStateManager {
       });
     }
 
-    CollisionWorld.setMap(obstacles, mapDef.bounds, terrainFn);
+    PhysicsBridge.setMap(obstacles, mapDef.bounds, terrainFn);
 
     if (mapId === 'jungle-ops') {
       const report = validateJungleRoadClearance(MAP_OBSTACLES['jungle-ops']);

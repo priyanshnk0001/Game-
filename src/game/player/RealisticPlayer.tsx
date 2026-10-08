@@ -6,7 +6,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { PlayerState } from '../../types/game';
 import { WEAPON_SPAWNS } from '../../config/constants';
 import { RealisticWeapon } from '../weapons/RealisticWeapon';
-import { CollisionWorld } from '../collision/CollisionWorld';
+import { PhysicsBridge } from '../physics/PhysicsBridge';
 
 interface RealisticPlayerProps {
   player: PlayerState;
@@ -97,10 +97,12 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     leftLeg?: THREE.Bone;
     leftFoot?: THREE.Bone;
     leftToeBase?: THREE.Bone;
+    leftToeEnd?: THREE.Bone;
     rightUpLeg?: THREE.Bone;
     rightLeg?: THREE.Bone;
     rightFoot?: THREE.Bone;
     rightToeBase?: THREE.Bone;
+    rightToeEnd?: THREE.Bone;
     fingerBones?: {
       bone: THREE.Bone;
       name: string;
@@ -159,7 +161,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         restQuats.set(bone.name, bone.quaternion.clone());
 
         const cleanName = bone.name.replace('mixamorig:', '').replace('mixamorig', '');
-        const fingerMatch = cleanName.match(/^(LeftHand|RightHand)(Thumb|Index|Middle|Ring|Pinky)([1-3])$/);
+        const fingerMatch = cleanName.match(/^(LeftHand|RightHand)(Thumb|Index|Middle|Ring|Pinky)([1-4])$/);
         if (fingerMatch) {
           fingerBones.push({
             bone,
@@ -193,10 +195,12 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
           case 'LeftLeg': bones.leftLeg = bone; break;
           case 'LeftFoot': bones.leftFoot = bone; break;
           case 'LeftToeBase': bones.leftToeBase = bone; break;
+          case 'LeftToe_End': bones.leftToeEnd = bone; break;
           case 'RightUpLeg': bones.rightUpLeg = bone; break;
           case 'RightLeg': bones.rightLeg = bone; break;
           case 'RightFoot': bones.rightFoot = bone; break;
           case 'RightToeBase': bones.rightToeBase = bone; break;
+          case 'RightToe_End': bones.rightToeEnd = bone; break;
         }
       }
     });
@@ -223,11 +227,12 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       rootGroupRef.current.rotation.y = player.rotationY;
     }
 
-    // Measure ground velocity and speed
-    const currentPos = _v0.set(...player.position);
-    const distMoved = currentPos.distanceTo(prevPosRef.current);
-    prevPosRef.current.copy(currentPos);
-    const speed = distMoved / Math.max(0.0001, delta);
+    // Measure horizontal ground velocity and speed (ignoring vertical movement)
+    const dx = player.position[0] - prevPosRef.current.x;
+    const dz = player.position[2] - prevPosRef.current.z;
+    const horizontalDistMoved = Math.hypot(dx, dz);
+    prevPosRef.current.set(...player.position);
+    const speed = horizontalDistMoved / Math.max(0.0001, delta);
     const isMoving = speed > 0.12 && !player.isDead;
     const isSprinting = player.isSprinting && isMoving && speed > 2.5;
 
@@ -374,23 +379,25 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       characterGroupRef.current.updateMatrixWorld(true);
 
       const contactPoints = [
-        { bone: b.leftFoot, radius: 0.055 },
-        { bone: b.rightFoot, radius: 0.055 },
-        { bone: b.leftToeBase, radius: 0.035 },
-        { bone: b.rightToeBase, radius: 0.035 },
-        { bone: b.leftLeg, radius: 0.075 },
-        { bone: b.rightLeg, radius: 0.075 },
+        { bone: b.leftFoot, radius: 0.080 },
+        { bone: b.rightFoot, radius: 0.080 },
+        { bone: b.leftToeBase, radius: 0.040 },
+        { bone: b.rightToeBase, radius: 0.040 },
+        { bone: b.leftToeEnd, radius: 0.025 },
+        { bone: b.rightToeEnd, radius: 0.025 },
+        { bone: b.leftLeg, radius: 0.080 },
+        { bone: b.rightLeg, radius: 0.080 },
         { bone: b.leftUpLeg, radius: 0.090 },
         { bone: b.rightUpLeg, radius: 0.090 },
         { bone: b.hips, radius: 0.110 },
-        { bone: b.spine, radius: 0.120 },
+        { bone: b.spine, radius: 0.110 },
         { bone: b.leftForeArm, radius: 0.055 },
         { bone: b.rightForeArm, radius: 0.055 },
         { bone: b.leftHand, radius: 0.045 },
         { bone: b.rightHand, radius: 0.045 },
       ];
 
-      const GROUND_MARGIN = 0.010; // Realistic ground contact margin (1cm)
+      const GROUND_MARGIN = 0.002; // 2mm solid contact margin
       let minDelta = Infinity;
 
       // 1. Direct bone contact points
@@ -400,7 +407,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
         cp.bone.getWorldPosition(_contactPos);
         const lowestY = _contactPos.y - cp.radius;
-        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
         const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
 
         if (deltaToTarget < minDelta) {
@@ -413,8 +420,8 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         b.leftLeg.getWorldPosition(_contactPos);
         b.leftFoot.getWorldPosition(_v1);
         _contactPos.add(_v1).multiplyScalar(0.5);
-        const lowestY = _contactPos.y - 0.065;
-        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const lowestY = _contactPos.y - 0.070;
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
         const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
         if (deltaToTarget < minDelta) {
           minDelta = deltaToTarget;
@@ -424,23 +431,107 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         b.rightLeg.getWorldPosition(_contactPos);
         b.rightFoot.getWorldPosition(_v1);
         _contactPos.add(_v1).multiplyScalar(0.5);
-        const lowestY = _contactPos.y - 0.065;
-        const groundY = CollisionWorld.getGroundHeight(_contactPos.x, _contactPos.z, player.position[1]);
+        const lowestY = _contactPos.y - 0.070;
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
         const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
         if (deltaToTarget < minDelta) {
           minDelta = deltaToTarget;
         }
       }
 
+      // 3. Palm centers (midpoint between wrist and middle knuckle)
+      if (b.leftHand && b.fingerBones) {
+        const leftMiddle = b.fingerBones.find(f => f.name === 'LeftHandMiddle1')?.bone;
+        if (leftMiddle) {
+          b.leftHand.getWorldPosition(_contactPos);
+          leftMiddle.getWorldPosition(_v1);
+          _contactPos.add(_v1).multiplyScalar(0.5);
+          const lowestY = _contactPos.y - 0.035;
+          const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
+          const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+          if (deltaToTarget < minDelta) minDelta = deltaToTarget;
+        }
+      }
+      if (b.rightHand && b.fingerBones) {
+        const rightMiddle = b.fingerBones.find(f => f.name === 'RightHandMiddle1')?.bone;
+        if (rightMiddle) {
+          b.rightHand.getWorldPosition(_contactPos);
+          rightMiddle.getWorldPosition(_v1);
+          _contactPos.add(_v1).multiplyScalar(0.5);
+          const lowestY = _contactPos.y - 0.035;
+          const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
+          const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+          if (deltaToTarget < minDelta) minDelta = deltaToTarget;
+        }
+      }
+
+      // 4. Fingers and knuckles (ensures hands and fingertips never penetrate terrain in prone)
+      if (b.fingerBones) {
+        for (let i = 0; i < b.fingerBones.length; i++) {
+          const fb = b.fingerBones[i];
+          if (!fb.bone) continue;
+          fb.bone.getWorldPosition(_contactPos);
+          const lowestY = _contactPos.y - 0.018;
+          const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
+          const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+          if (deltaToTarget < minDelta) {
+            minDelta = deltaToTarget;
+          }
+        }
+      }
+
+      // 5. Chest and upper torso (prevents chest/abdomen ground penetration in prone)
+      if (b.spine1) {
+        b.spine1.getWorldPosition(_contactPos);
+        const lowestY = _contactPos.y - 0.120;
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+        if (deltaToTarget < minDelta) minDelta = deltaToTarget;
+      }
+      if (b.spine2) {
+        b.spine2.getWorldPosition(_contactPos);
+        const lowestY = _contactPos.y - 0.120;
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+        if (deltaToTarget < minDelta) minDelta = deltaToTarget;
+      }
+
+      // 6. Elbows and upper arms
+      if (b.leftArm) {
+        b.leftArm.getWorldPosition(_contactPos);
+        const lowestY = _contactPos.y - 0.065;
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+        if (deltaToTarget < minDelta) minDelta = deltaToTarget;
+      }
+      if (b.rightArm) {
+        b.rightArm.getWorldPosition(_contactPos);
+        const lowestY = _contactPos.y - 0.065;
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+        if (deltaToTarget < minDelta) minDelta = deltaToTarget;
+      }
+
+      // 7. Head / chin
+      if (b.head) {
+        b.head.getWorldPosition(_contactPos);
+        const lowestY = _contactPos.y - 0.095;
+        const groundY = PhysicsBridge.getGroundHeight(_contactPos.x, _contactPos.z, _contactPos.y);
+        const deltaToTarget = lowestY - (groundY + GROUND_MARGIN);
+        if (deltaToTarget < minDelta) minDelta = deltaToTarget;
+      }
+
       if (!isFinite(minDelta)) return;
 
+      const clampedDelta = Math.max(-0.40, Math.min(0.40, minDelta));
+
       if (player.isGrounded || player.isDead) {
-        // When grounded or dead, vertically place the character so the lowest body/foot contact point rests naturally on the existing ground
-        characterGroupRef.current.position.y -= minDelta;
+        // Vertically place the complete character mesh container so the lowest contact point rests naturally on the ground
+        characterGroupRef.current.position.y -= clampedDelta;
         characterGroupRef.current.updateMatrixWorld(true);
-      } else if (minDelta < 0) {
-        // While airborne, only prevent clipping into terrain surfaces
-        characterGroupRef.current.position.y -= minDelta;
+      } else if (clampedDelta < 0) {
+        // While airborne, prevent clipping into terrain surfaces
+        characterGroupRef.current.position.y -= clampedDelta;
         characterGroupRef.current.updateMatrixWorld(true);
       }
     };

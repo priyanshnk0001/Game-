@@ -1,7 +1,7 @@
 // Accurate 3D raycast hit detection intersecting map obstacles and player hitboxes
 
 import * as THREE from 'three';
-import { CollisionWorld } from '../collision/CollisionWorld';
+import { PhysicsBridge } from '../physics/PhysicsBridge';
 import { PlayerId, PlayerState } from '../../types/game';
 
 export type SurfaceType = 'concrete' | 'metal' | 'wood' | 'stone' | 'ground';
@@ -43,8 +43,8 @@ export class RaycastCombatSystem {
       .copy(origin)
       .addScaledVector(this.ray.direction, maxRange);
 
-    // 1. Check intersection with map obstacles / cover using CollisionWorld
-    const obsHit = CollisionWorld.castBulletRay(origin, this.ray.direction, maxRange);
+    // 1. Check intersection with map obstacles / cover using Rapier PhysicsBridge
+    const obsHit = PhysicsBridge.castBulletRay(origin, this.ray.direction, maxRange);
     if (obsHit.hit && obsHit.distance < closestDist) {
       closestDist = obsHit.distance;
       finalHitPoint.copy(obsHit.hitPoint);

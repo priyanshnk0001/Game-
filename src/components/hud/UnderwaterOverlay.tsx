@@ -1,139 +1,100 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
 import { useGameState } from '../../hooks/useGameState';
 
 /**
  * UnderwaterOverlay
- * Renders a blue-green tinted vignette with animated distortion when the
- * active player's camera is below the water surface.
+ * Subtle, non-intrusive HUD enhancement for when the active player is submerged.
+ * Note: Does NOT render full-screen blue tints or artificial filters —
+ * the 3D WaterSystem handles realistic underwater depth and atmospheric fog.
  */
 export const UnderwaterOverlay: React.FC = () => {
   const state = useGameState();
   const player = state.players[state.activePlayerId];
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const animRef = useRef<number | null>(null);
-  const timeRef = useRef(0);
 
   const waterState = player?.waterState ?? 'land';
   const isUnderwater = waterState === 'underwater';
   const isSurface = waterState === 'surface';
-
-  // Animate subtle distortion shimmer
-  useEffect(() => {
-    if (!isUnderwater) {
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-      return;
-    }
-
-    const animate = (ts: number) => {
-      timeRef.current = ts * 0.001;
-      if (overlayRef.current) {
-        const shimmer = Math.sin(timeRef.current * 1.4) * 0.5 + Math.sin(timeRef.current * 2.3) * 0.3;
-        overlayRef.current.style.backdropFilter = `blur(${1.2 + shimmer * 0.6}px) saturate(1.4)`;
-      }
-      animRef.current = requestAnimationFrame(animate);
-    };
-    animRef.current = requestAnimationFrame(animate);
-    return () => {
-      if (animRef.current) cancelAnimationFrame(animRef.current);
-    };
-  }, [isUnderwater]);
+  const swimDepth = player?.swimDepth ?? (isUnderwater ? 1.1 : 0.0);
 
   if (!isUnderwater && !isSurface) return null;
 
   return (
     <>
-      {/* Underwater full-screen tint + fog */}
+      {/* 1. Clear tropical freshwater blue-green/teal water depth transmission (Reference 1 & 2) */}
       {isUnderwater && (
         <div
-          ref={overlayRef}
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 150,
+            zIndex: 140,
             pointerEvents: 'none',
-            background: 'radial-gradient(ellipse at center, rgba(5,60,90,0.55) 0%, rgba(2,30,55,0.82) 100%)',
+            // Luminous tropical blue-green / teal freshwater transmission
+            background: 'linear-gradient(180deg, rgba(25, 175, 185, 0.12) 0%, rgba(12, 120, 132, 0.20) 45%, rgba(6, 75, 85, 0.32) 100%)',
             mixBlendMode: 'multiply',
-            transition: 'opacity 0.4s ease',
           }}
         />
       )}
-      {/* Underwater vignette edge darkening */}
       {isUnderwater && (
         <div
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 151,
+            zIndex: 141,
             pointerEvents: 'none',
-            background: 'radial-gradient(ellipse at 50% 50%, transparent 40%, rgba(0,20,40,0.6) 100%)',
+            // Soft sunlight bleed near water surface at top of screen
+            background: 'radial-gradient(ellipse at 50% 0%, rgba(130, 245, 250, 0.18) 0%, transparent 65%)',
           }}
         />
       )}
-      {/* Caustic light rays (animated pseudo-caustics) */}
-      {isUnderwater && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 152,
-            pointerEvents: 'none',
-            opacity: 0.12,
-            background: `repeating-linear-gradient(
-              ${78 + Math.sin(Date.now() * 0.001) * 5}deg,
-              transparent 0px,
-              rgba(100,210,255,0.4) 3px,
-              transparent 8px,
-              transparent 40px
-            )`,
-            animation: 'uwCaustic 3s ease-in-out infinite alternate',
-          }}
-        />
-      )}
-      {/* Depth HUD indicator */}
+
+      {/* 2. Tidewater-inspired minimalist Depth HUD Indicator */}
       {isUnderwater && (
         <div
           style={{
             position: 'fixed',
             bottom: '120px',
-            right: '24px',
-            zIndex: 155,
+            right: '28px',
+            zIndex: 145,
             pointerEvents: 'none',
-            color: 'rgba(160,230,255,0.85)',
-            fontSize: '11px',
+            color: 'rgba(140, 230, 245, 0.9)',
+            fontSize: '12px',
             fontFamily: 'monospace',
-            fontWeight: 700,
             letterSpacing: '0.08em',
-            textShadow: '0 0 8px rgba(60,180,255,0.8)',
+            textShadow: '0 0 10px rgba(40, 190, 220, 0.7)',
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'center',
+            alignItems: 'flex-end',
             gap: '2px',
           }}
         >
-          <span style={{ fontSize: '18px' }}>〜</span>
-          <span>UNDERWATER</span>
-          <span style={{ fontSize: '9px', opacity: 0.7 }}>[ SPACE ] ↑   [ F ] ↓</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ fontSize: '15px' }}>〰</span>
+            <span style={{ fontWeight: 700 }}>
+              {Math.max(0.4, swimDepth).toFixed(1)} m
+            </span>
+          </div>
+          <span style={{ fontSize: '9px', opacity: 0.75, letterSpacing: '0.12em' }}>
+            SUBMERGED
+          </span>
+          <span style={{ fontSize: '8px', opacity: 0.5, marginTop: '2px' }}>
+            [ SPACE ] ↑   [ C ] ↓
+          </span>
         </div>
       )}
-      {/* Surface entry ripple flash */}
+
+      {/* 3. Subtle surface splash shimmer (clears quickly) */}
       {isSurface && (
         <div
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 148,
+            zIndex: 139,
             pointerEvents: 'none',
-            background: 'radial-gradient(ellipse at center, rgba(40,140,180,0.12) 0%, transparent 70%)',
+            background: 'radial-gradient(ellipse at center, rgba(60, 180, 200, 0.08) 0%, transparent 60%)',
+            transition: 'opacity 0.3s ease',
           }}
         />
       )}
-      <style>{`
-        @keyframes uwCaustic {
-          0%   { transform: skewX(-2deg) scaleX(0.98); opacity: 0.10; }
-          50%  { transform: skewX(2deg)  scaleX(1.02); opacity: 0.16; }
-          100% { transform: skewX(-1deg) scaleX(0.99); opacity: 0.08; }
-        }
-      `}</style>
     </>
   );
 };
