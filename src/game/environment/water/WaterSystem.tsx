@@ -32,15 +32,22 @@ export interface WaterSystemProps {
 }
 
 /**
+ * Height offset to raise the river water surface closer to the top of the mud banks (~0.6 to 0.7 units).
+ */
+export const RIVER_SURFACE_Y_OFFSET = 0.65;
+
+/**
  * Transforms / prepares water geometry for the Three.js Water system:
  * - Converts horizontal world-space meshes (such as the spline river ribbon) into
  *   local coordinate space where local normal is (0, 0, 1) and rotation.x = -PI/2
- *   aligns it with world horizontal plane at Y = config.waterLevel.
+ *   aligns it with world horizontal plane at Y = config.waterLevel + yOffset.
+ * - Raises Y-axis coordinate elements by yOffset (approx 0.65 units) so river fills closer to mud banks.
  * - Ensures aRiverParams attribute exists for wave damping and depth gradient calculations.
  */
 function prepareWaterGeometry(
   geom: THREE.BufferGeometry,
-  waterLevel: number
+  waterLevel: number,
+  yOffset: number = RIVER_SURFACE_Y_OFFSET
 ): THREE.BufferGeometry {
   const localGeom = geom.clone();
   localGeom.computeBoundingBox();
@@ -50,14 +57,15 @@ function prepareWaterGeometry(
   const isWorldSpace = bb && Math.abs(bb.max.y - bb.min.y) < 10 && (bb.max.z - bb.min.z) > 10;
   if (isWorldSpace) {
     const pos = localGeom.attributes.position;
+    const effectiveWaterLevel = waterLevel + yOffset;
     for (let i = 0; i < pos.count; i++) {
       const wx = pos.getX(i);
-      const wy = pos.getY(i);
+      const wy = pos.getY(i) + yOffset;
       const wz = pos.getZ(i);
       // Map world coords (wx, wy, wz) to local coords (x_L, y_L, z_L):
-      // pos_world = (0, waterLevel, 0) + R_x(-PI/2) * (x_L, y_L, z_L) = (x_L, waterLevel + z_L, -y_L)
-      // Therefore: x_L = wx, y_L = -wz, z_L = wy - waterLevel
-      pos.setXYZ(i, wx, -wz, wy - waterLevel);
+      // pos_world = (0, effectiveWaterLevel, 0) + R_x(-PI/2) * (x_L, y_L, z_L) = (x_L, effectiveWaterLevel + z_L, -y_L)
+      // Therefore: x_L = wx, y_L = -wz, z_L = wy - effectiveWaterLevel
+      pos.setXYZ(i, wx, -wz, wy - effectiveWaterLevel);
     }
     pos.needsUpdate = true;
     localGeom.computeVertexNormals();
@@ -102,8 +110,11 @@ export const RealisticWaterSurface: React.FC<{
   const waterRef = useRef<Water | null>(null);
 
   const water = useMemo(() => {
-    // 1. Prepare local geometry oriented for horizontal reflection plane
-    const localGeom = prepareWaterGeometry(geometry, config.waterLevel);
+    const yOffset = config.type === 'river' ? RIVER_SURFACE_Y_OFFSET : 0;
+    const effectiveWaterLevel = config.waterLevel + yOffset;
+
+    // 1. Prepare local geometry oriented for horizontal reflection plane raised by yOffset
+    const localGeom = prepareWaterGeometry(geometry, config.waterLevel, yOffset);
 
     // 2. Load water normal map with smooth repeat wrapping
     const textureLoader = new THREE.TextureLoader();
@@ -236,8 +247,8 @@ export const RealisticWaterSurface: React.FC<{
     waterInstance.material.transparent = true;
     waterInstance.material.depthWrite = false;
 
-    // 9. Align horizontal water surface at configured water elevation
-    waterInstance.position.set(0, config.waterLevel, 0);
+    // 9. Align horizontal water surface at configured water elevation + yOffset
+    waterInstance.position.set(0, effectiveWaterLevel, 0);
     waterInstance.rotation.x = -Math.PI / 2;
 
     return waterInstance;
