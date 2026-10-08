@@ -665,11 +665,11 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
       // Forearms resting forward on ground
       if (b.leftForeArm) {
-        _q0.setFromAxisAngle(Z_AXIS, 0.70 * proneT);
+        _q0.setFromAxisAngle(Z_AXIS, 1.80 * proneT);
         b.leftForeArm.quaternion.multiply(_q0);
       }
       if (b.rightForeArm) {
-        _q0.setFromAxisAngle(Z_AXIS, -0.70 * proneT);
+        _q0.setFromAxisAngle(Z_AXIS, -1.80 * proneT);
         b.rightForeArm.quaternion.multiply(_q0);
       }
 
