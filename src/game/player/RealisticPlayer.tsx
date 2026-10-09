@@ -972,7 +972,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       // 5. Military Prone Kinematics
       // Head alertly raised to look forward along sight line (-0.75 resting, -1.05 crawling)
       if (b.neck) {
-        const neckPitch = THREE.MathUtils.lerp(-0.55, -1.05, locoW) * proneT;
+        const neckPitch = THREE.MathUtils.lerp(-0.55, -0.75, locoW) * proneT;
         _q0.setFromAxisAngle(X_AXIS, neckPitch);
         b.neck.quaternion.multiply(_q0);
       }
@@ -1018,6 +1018,18 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         b.rightHand.quaternion.multiply(_q0);
       }
 
+      // Prone spine posture: smooth transition between resting and crawling
+      if (b.spine) {
+        const spineAngle = THREE.MathUtils.lerp(0.04, -0.04, locoW) * proneT;
+        _q0.setFromAxisAngle(X_AXIS, spineAngle);
+        b.spine.quaternion.multiply(_q0);
+      }
+      if (b.spine1) {
+        const spine1Angle = THREE.MathUtils.lerp(-0.04, -0.24, locoW) * proneT;
+        _q0.setFromAxisAngle(X_AXIS, spine1Angle);
+        b.spine1.quaternion.multiply(_q0);
+      }
+
       // Prone crawl stride: alternating knee push
       if (isMoving) {
         const crawlPush = Math.sin(gp);
@@ -1028,6 +1040,43 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         if (b.rightUpLeg) {
           _q0.setFromAxisAngle(Z_AXIS, Math.max(0, crawlPush) * -0.25 * proneT);
           b.rightUpLeg.quaternion.multiply(_q0);
+        }
+      } else {
+        // Dedicated stationary resting prone pose for legs
+        const restWeight = (1.0 - locoW) * proneT;
+
+        // Extended military prone legs (naturally straight and close to ground with subtle lateral splay)
+        if (b.leftUpLeg) {
+          _q0.setFromAxisAngle(X_AXIS, -0.03 * restWeight);
+          _q1.setFromAxisAngle(Z_AXIS, 0.08 * restWeight);
+          _qDelta.multiplyQuaternions(_q0, _q1);
+          b.leftUpLeg.quaternion.multiply(_qDelta);
+        }
+        if (b.rightUpLeg) {
+          _q0.setFromAxisAngle(X_AXIS, -0.03 * restWeight);
+          _q1.setFromAxisAngle(Z_AXIS, -0.08 * restWeight);
+          _qDelta.multiplyQuaternions(_q0, _q1);
+          b.rightUpLeg.quaternion.multiply(_qDelta);
+        }
+
+        // Naturally extended knees (avoiding crouching, kneeling, or unnaturally bent legs)
+        if (b.leftLeg) {
+          _q0.setFromAxisAngle(X_AXIS, -0.04 * restWeight);
+          b.leftLeg.quaternion.multiply(_q0);
+        }
+        if (b.rightLeg) {
+          _q0.setFromAxisAngle(X_AXIS, -0.04 * restWeight);
+          b.rightLeg.quaternion.multiply(_q0);
+        }
+
+        // Natural ankle plantarflexion so feet extend flat along ground instead of digging toes in
+        if (b.leftFoot) {
+          _q0.setFromAxisAngle(X_AXIS, 0.40 * restWeight);
+          b.leftFoot.quaternion.multiply(_q0);
+        }
+        if (b.rightFoot) {
+          _q0.setFromAxisAngle(X_AXIS, 0.40 * restWeight);
+          b.rightFoot.quaternion.multiply(_q0);
         }
       }
     } else if (isInWater) {
