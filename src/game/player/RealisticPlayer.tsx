@@ -37,6 +37,104 @@ const getCrouchRestDrop = (t: number) => {
   return CROUCH_REST_DROP_LUT[idx] + (CROUCH_REST_DROP_LUT[idx + 1] - CROUCH_REST_DROP_LUT[idx]) * frac;
 };
 
+export type StanceWaypoint = 'standing' | 'crouch_moving' | 'crouch_resting' | 'prone';
+
+const WAYPOINT_COORDS: Record<StanceWaypoint, { crouchT: number; crouchStyle: number; proneT: number }> = {
+  standing: { crouchT: 0.0, crouchStyle: 1.0, proneT: 0.0 },
+  crouch_moving: { crouchT: 1.0, crouchStyle: 1.0, proneT: 0.0 },
+  crouch_resting: { crouchT: 1.0, crouchStyle: 0.0, proneT: 0.0 },
+  prone: { crouchT: 1.0, crouchStyle: 0.0, proneT: 1.0 },
+};
+
+const STANCE_ORDER: StanceWaypoint[] = ['standing', 'crouch_moving', 'crouch_resting', 'prone'];
+
+function getWaypointSequence(from: StanceWaypoint, to: StanceWaypoint): StanceWaypoint[] {
+  if (from === to) return [to];
+
+  const fromIdx = STANCE_ORDER.indexOf(from);
+  const toIdx = STANCE_ORDER.indexOf(to);
+
+  const seq: StanceWaypoint[] = [];
+  if (fromIdx < toIdx) {
+    for (let i = fromIdx + 1; i <= toIdx; i++) {
+      seq.push(STANCE_ORDER[i]);
+    }
+  } else {
+    for (let i = fromIdx - 1; i >= toIdx; i--) {
+      seq.push(STANCE_ORDER[i]);
+    }
+  }
+  return seq;
+}
+
+// Seamless overlapping blend window evaluator for multi-stage stance transitions
+function evaluateStanceTransition(
+  fromCoords: { crouchT: number; crouchStyle: number; proneT: number },
+  stages: StanceWaypoint[],
+  progress: number
+): { crouchT: number; crouchStyle: number; proneT: number } {
+  const p = Math.min(1.0, Math.max(0.0, progress));
+  const n = stages.length;
+
+  if (n <= 1) {
+    const target = WAYPOINT_COORDS[stages[0] || 'standing'];
+    const t = THREE.MathUtils.smoothstep(p, 0.0, 1.0);
+    return {
+      crouchT: THREE.MathUtils.lerp(fromCoords.crouchT, target.crouchT, t),
+      crouchStyle: THREE.MathUtils.lerp(fromCoords.crouchStyle, target.crouchStyle, t),
+      proneT: THREE.MathUtils.lerp(fromCoords.proneT, target.proneT, t),
+    };
+  }
+
+  if (n === 2) {
+    const p1 = WAYPOINT_COORDS[stages[0]];
+    const p2 = WAYPOINT_COORDS[stages[1]];
+
+    // Overlapping blend windows:
+    // Stage 1 active p: 0.00 -> 0.60
+    // Stage 2 active p: 0.40 -> 1.00
+    const t1 = THREE.MathUtils.smoothstep(p, 0.0, 0.60);
+    const t2 = THREE.MathUtils.smoothstep(p, 0.40, 1.00);
+
+    const c1 = THREE.MathUtils.lerp(fromCoords.crouchT, p1.crouchT, t1);
+    const s1 = THREE.MathUtils.lerp(fromCoords.crouchStyle, p1.crouchStyle, t1);
+    const pr1 = THREE.MathUtils.lerp(fromCoords.proneT, p1.proneT, t1);
+
+    return {
+      crouchT: THREE.MathUtils.lerp(c1, p2.crouchT, t2),
+      crouchStyle: THREE.MathUtils.lerp(s1, p2.crouchStyle, t2),
+      proneT: THREE.MathUtils.lerp(pr1, p2.proneT, t2),
+    };
+  }
+
+  // n === 3: Three-stage sequence (Standing <-> Prone)
+  const p1 = WAYPOINT_COORDS[stages[0]];
+  const p2 = WAYPOINT_COORDS[stages[1]];
+  const p3 = WAYPOINT_COORDS[stages[2]];
+
+  // Overlapping blend windows:
+  // Stage 1 active p: 0.00 -> 0.42
+  // Stage 2 active p: 0.28 -> 0.72
+  // Stage 3 active p: 0.58 -> 1.00
+  const t1 = THREE.MathUtils.smoothstep(p, 0.0, 0.42);
+  const t2 = THREE.MathUtils.smoothstep(p, 0.28, 0.72);
+  const t3 = THREE.MathUtils.smoothstep(p, 0.58, 1.00);
+
+  const c1 = THREE.MathUtils.lerp(fromCoords.crouchT, p1.crouchT, t1);
+  const s1 = THREE.MathUtils.lerp(fromCoords.crouchStyle, p1.crouchStyle, t1);
+  const pr1 = THREE.MathUtils.lerp(fromCoords.proneT, p1.proneT, t1);
+
+  const c2 = THREE.MathUtils.lerp(c1, p2.crouchT, t2);
+  const s2 = THREE.MathUtils.lerp(s1, p2.crouchStyle, t2);
+  const pr2 = THREE.MathUtils.lerp(pr1, p2.proneT, t2);
+
+  return {
+    crouchT: THREE.MathUtils.lerp(c2, p3.crouchT, t3),
+    crouchStyle: THREE.MathUtils.lerp(s2, p3.crouchStyle, t3),
+    proneT: THREE.MathUtils.lerp(pr2, p3.proneT, t3),
+  };
+}
+
 export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLocal }) => {
   const rootGroupRef = useRef<THREE.Group>(null);
   const characterGroupRef = useRef<THREE.Group>(null);
@@ -146,8 +244,39 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
   const breathTimeRef = useRef<number>(Math.random() * 10);
   const locoBlendRef = useRef<number>(0);
   const sprintBlendRef = useRef<number>(0);
-  const crouchProgressRef = useRef<number>(player.isCrouching ? 1.0 : 0.0);
-  const proneProgressRef = useRef<number>(player.isProne ? 1.0 : 0.0);
+
+  // Discrete and continuous stance state sequencer tracking
+  const initialStance: StanceWaypoint = player.isProne
+    ? 'prone'
+    : player.isCrouching
+    ? 'crouch_resting'
+    : 'standing';
+
+  const currentStanceRef = useRef<StanceWaypoint>(initialStance);
+  const desiredGoalRef = useRef<StanceWaypoint>(initialStance);
+  const lastNonProneStanceRef = useRef<StanceWaypoint>(
+    player.isCrouching ? 'crouch_resting' : 'standing'
+  );
+
+  // Single unified transition timeline controller
+  const transitionRef = useRef<{
+    isActive: boolean;
+    time: number;
+    duration: number;
+    fromCoords: { crouchT: number; crouchStyle: number; proneT: number };
+    stages: StanceWaypoint[];
+  }>({
+    isActive: false,
+    time: 0,
+    duration: 0.28,
+    fromCoords: { ...WAYPOINT_COORDS[initialStance] },
+    stages: [initialStance],
+  });
+
+  const crouchProgressRef = useRef<number>(WAYPOINT_COORDS[initialStance].crouchT);
+  const crouchStyleRef = useRef<number>(WAYPOINT_COORDS[initialStance].crouchStyle);
+  const proneProgressRef = useRef<number>(WAYPOINT_COORDS[initialStance].proneT);
+
   const weaponTransition1Ref = useRef<number>(player.activeSlot === 1 && player.weaponState === 'ready' ? 1.0 : 0.0);
   const weaponTransition2Ref = useRef<number>(player.activeSlot === 2 && player.weaponState === 'ready' ? 1.0 : 0.0);
   const aimProgressRef = useRef<number>(player.isAiming ? 1.0 : 0.0);
@@ -274,14 +403,94 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     // Pelvic list / roll
     const pelvisRollZ = Math.sin(gp) * 0.025 * locoW;
 
-    // Stance transition smoothing: standing (0.0), crouch (1.0), prone (1.0)
-    const targetCrouch = player.isCrouching && !player.isDead ? 1.0 : 0.0;
-    const targetProne = player.isProne && !player.isDead ? 1.0 : 0.0;
-    crouchProgressRef.current = THREE.MathUtils.lerp(crouchProgressRef.current, targetCrouch, Math.min(1, dt * 8));
-    proneProgressRef.current = THREE.MathUtils.lerp(proneProgressRef.current, targetProne, Math.min(1, dt * 6));
+    // Stance transition smoothing: multi-stage sequence between standing, moving crouch, resting crouch, and prone
+    let desiredGoal: StanceWaypoint;
+    if (player.isProne && !player.isDead) {
+      desiredGoal = 'prone';
+    } else if (player.isCrouching && !player.isDead) {
+      // If currently in prone (or transitioning out of prone):
+      if (currentStanceRef.current === 'prone' || proneProgressRef.current > 0.05) {
+        if (isMoving) {
+          desiredGoal = 'crouch_moving';
+        } else if (lastNonProneStanceRef.current === 'crouch_resting') {
+          // Direct return to resting crouch (Sequence 3: Prone -> Resting Crouch)
+          desiredGoal = 'crouch_resting';
+        } else {
+          // Return to moving crouch posture (Sequence 2: Prone -> Resting Crouch -> Moving Crouch)
+          desiredGoal = 'crouch_moving';
+        }
+      } else {
+        // Regular crouch mode: moving crouch if walking, resting crouch if stationary
+        desiredGoal = isMoving ? 'crouch_moving' : 'crouch_resting';
+      }
+    } else {
+      // Standing (Sequence 1 returning: Prone -> Resting Crouch -> Moving Crouch -> Standing)
+      desiredGoal = 'standing';
+    }
+
+    // When desired goal changes, record origin stance and launch continuous transition timeline
+    if (desiredGoal !== desiredGoalRef.current) {
+      if (desiredGoal === 'prone' && currentStanceRef.current !== 'prone') {
+        lastNonProneStanceRef.current = currentStanceRef.current;
+      }
+      desiredGoalRef.current = desiredGoal;
+
+      const stages = getWaypointSequence(currentStanceRef.current, desiredGoal);
+      const numStages = stages.length;
+      // Fluid continuous timing without sequential pauses: 3 stages (0.72s), 2 stages (0.50s), 1 stage (0.28s)
+      const duration = numStages === 3 ? 0.72 : numStages === 2 ? 0.50 : 0.28;
+
+      transitionRef.current = {
+        isActive: true,
+        time: 0,
+        duration,
+        fromCoords: {
+          crouchT: crouchProgressRef.current,
+          crouchStyle: crouchStyleRef.current,
+          proneT: proneProgressRef.current,
+        },
+        stages,
+      };
+    }
+
+    const tr = transitionRef.current;
+    if (tr.isActive) {
+      tr.time += dt;
+      const progress = Math.min(1.0, tr.time / tr.duration);
+
+      // Evaluate smoothly overlapping coordinates along the full sequence
+      const coords = evaluateStanceTransition(tr.fromCoords, tr.stages, progress);
+      crouchProgressRef.current = coords.crouchT;
+      crouchStyleRef.current = coords.crouchStyle;
+      proneProgressRef.current = coords.proneT;
+
+      // Update currentStanceRef as progress passes milestone thresholds so interruptions reverse seamlessly
+      const n = tr.stages.length;
+      if (n === 3) {
+        if (progress >= 0.70) currentStanceRef.current = tr.stages[2];
+        else if (progress >= 0.35) currentStanceRef.current = tr.stages[1];
+      } else if (n === 2) {
+        if (progress >= 0.50) currentStanceRef.current = tr.stages[1];
+      }
+
+      if (progress >= 1.0) {
+        tr.isActive = false;
+        currentStanceRef.current = tr.stages[tr.stages.length - 1];
+        const finalCoords = WAYPOINT_COORDS[currentStanceRef.current];
+        crouchProgressRef.current = finalCoords.crouchT;
+        crouchStyleRef.current = finalCoords.crouchStyle;
+        proneProgressRef.current = finalCoords.proneT;
+      }
+    }
+
     const crouchT = crouchProgressRef.current;
+    const crouchStyle = crouchStyleRef.current;
     const proneT = proneProgressRef.current;
-    const crouchWalkWeight = crouchT * locoW;
+
+    // Weight for base crouch posture (0 = resting crouch, 1 = moving crouch)
+    const crouchPoseWeight = crouchT * crouchStyle;
+    // Crouch walking strides only animate if moving input is active
+    const crouchWalkWeight = crouchPoseWeight * locoW;
 
     // Weapon state transition smoothing
     const isSlot1Ready = player.activeSlot === 1 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
@@ -335,7 +544,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       } else {
         // Seamless continuous blend: Standing -> Crouch -> Prone
         const targetRotX = (Math.PI / 2) * proneT;
-        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, targetRotX, Math.min(1, dt * 8));
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, targetRotX, Math.min(1, dt * 18));
         characterGroupRef.current.rotation.y = 0;
 
         // Vertical and depth offsets:
@@ -344,7 +553,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         // In crouch-walking, hips lower 0.31m so the bent-knee gait maintains grounded foot clearance.
         const crouchRestDrop = getCrouchRestDrop(crouchT);
         const crouchWalkDrop = 0.31 * crouchT;
-        const crouchVerticalDrop = THREE.MathUtils.lerp(crouchRestDrop, crouchWalkDrop, crouchWalkWeight);
+        const crouchVerticalDrop = THREE.MathUtils.lerp(crouchRestDrop, crouchWalkDrop, crouchPoseWeight);
 
         const crawlBob = proneT > 0.05 && isMoving ? Math.abs(Math.sin(gp * 2)) * 0.015 * proneT : 0;
         const targetPosY = (0.10 * proneT) + crawlBob - (crouchVerticalDrop * (1.0 - proneT)) + pelvisBob * (1.0 - proneT);
@@ -568,8 +777,8 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     }
 
     // Subtle natural pelvic list/roll during gait weight transfer
-    if (b.hips && proneT < 0.5 && !isInWater) {
-      _q0.setFromAxisAngle(Z_AXIS, pelvisRollZ);
+    if (b.hips && proneT < 0.999 && !isInWater) {
+      _q0.setFromAxisAngle(Z_AXIS, pelvisRollZ * (1.0 - proneT));
       b.hips.quaternion.multiply(_q0);
     }
 
@@ -577,15 +786,17 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     const breathCycle = Math.sin(breathTimeRef.current * 1.8);
     if (b.spine1) {
       // Subtle natural chest rise and fall during breathing (0.012 rad) + thoracic forward lean in crouch
-      _q0.setFromAxisAngle(X_AXIS, breathCycle * 0.012 * (1.0 - proneT) + 0.18 * crouchT);
+      _q0.setFromAxisAngle(X_AXIS, breathCycle * 0.012 * (1.0 - proneT) + 0.18 * crouchT * (1.0 - proneT));
       // Counter-rotation of upper torso opposite to pelvis/stride for natural balance
       _q1.setFromAxisAngle(Y_AXIS, -Math.sin(gp) * 0.035 * locoW * (1.0 - proneT));
       _qDelta.multiplyQuaternions(_q0, _q1);
       b.spine1.quaternion.multiply(_qDelta);
     }
 
+    const proneLegFade = 1.0 - proneT;
+
     // 4. Anatomical Human Locomotion Kinematics (Hips -> Thigh -> Knee -> Ankle -> Foot)
-    if (!isInWater && !player.isVaulting && !player.isMantling && proneT < 0.5) {
+    if (!isInWater && !player.isVaulting && !player.isMantling && proneLegFade > 0.001) {
       // Stride amplitude scales smoothly from walking (~0.42 rad) to sprinting (~0.72 rad)
       const thighAmp = THREE.MathUtils.lerp(0.12, 0.52, sprintW) * locoW;
 
@@ -642,63 +853,63 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
       const crouchWalkSpineBase = 0.55 * crouchT;
 
-      // Interpolate base crouch pose: default stationary crouch at locoW = 0, crouch-walking pose at locoW = 1
-      const leftCrouchThigh = THREE.MathUtils.lerp(leftCrouchRestThigh, leftCrouchWalkThigh, crouchWalkWeight);
-      const leftCrouchKnee = THREE.MathUtils.lerp(leftCrouchRestKnee, leftCrouchWalkKnee, crouchWalkWeight);
-      const leftCrouchAnkle = THREE.MathUtils.lerp(leftCrouchRestAnkle, leftCrouchWalkAnkle, crouchWalkWeight);
+      // Interpolate base crouch pose: default stationary crouch at crouchPoseWeight = 0, crouch-walking pose at crouchPoseWeight = 1
+      const leftCrouchThigh = THREE.MathUtils.lerp(leftCrouchRestThigh, leftCrouchWalkThigh, crouchPoseWeight) * proneLegFade;
+      const leftCrouchKnee = THREE.MathUtils.lerp(leftCrouchRestKnee, leftCrouchWalkKnee, crouchPoseWeight) * proneLegFade;
+      const leftCrouchAnkle = THREE.MathUtils.lerp(leftCrouchRestAnkle, leftCrouchWalkAnkle, crouchPoseWeight) * proneLegFade;
 
-      const rightCrouchThigh = THREE.MathUtils.lerp(rightCrouchRestThigh, rightCrouchWalkThigh, crouchWalkWeight);
-      const rightCrouchKnee = THREE.MathUtils.lerp(rightCrouchRestKnee, rightCrouchWalkKnee, crouchWalkWeight);
-      const rightCrouchAnkle = THREE.MathUtils.lerp(rightCrouchRestAnkle, rightCrouchWalkAnkle, crouchWalkWeight);
+      const rightCrouchThigh = THREE.MathUtils.lerp(rightCrouchRestThigh, rightCrouchWalkThigh, crouchPoseWeight) * proneLegFade;
+      const rightCrouchKnee = THREE.MathUtils.lerp(rightCrouchRestKnee, rightCrouchWalkKnee, crouchPoseWeight) * proneLegFade;
+      const rightCrouchAnkle = THREE.MathUtils.lerp(rightCrouchRestAnkle, rightCrouchWalkAnkle, crouchPoseWeight) * proneLegFade;
 
-      const crouchSpine = THREE.MathUtils.lerp(crouchRestSpine, crouchWalkSpineBase, crouchWalkWeight);
+      const crouchSpine = THREE.MathUtils.lerp(crouchRestSpine, crouchWalkSpineBase, crouchPoseWeight) * proneLegFade;
 
       // PUBG/BGMI tactical crouch-walking gait offsets (applied smoothly on top of resting crouch pose)
 
       // 1. Alternating Thigh Kinematics:
       // Smoothly level resting asymmetry during locomotion so both legs have symmetric, balanced strides
-      const crouchAsymThigh = 0.25 * crouchWalkWeight;
-      const crouchThighAmp = 0.35 * crouchWalkWeight;
-      const lCrouchStepPlacement = Math.max(0, Math.sin(lPhase - 0.45)) * 0.10 * crouchWalkWeight;
-      const rCrouchStepPlacement = Math.max(0, Math.sin(rPhase - 0.45)) * 0.10 * crouchWalkWeight;
+      const crouchAsymThigh = 0.25 * crouchWalkWeight * proneLegFade;
+      const crouchThighAmp = 0.35 * crouchWalkWeight * proneLegFade;
+      const lCrouchStepPlacement = Math.max(0, Math.sin(lPhase - 0.45)) * 0.10 * crouchWalkWeight * proneLegFade;
+      const rCrouchStepPlacement = Math.max(0, Math.sin(rPhase - 0.45)) * 0.10 * crouchWalkWeight * proneLegFade;
       const lThighCrouchOffset = -crouchAsymThigh + lSwing * crouchThighAmp + lCrouchStepPlacement;
       const rThighCrouchOffset = crouchAsymThigh + rSwing * crouchThighAmp + rCrouchStepPlacement;
 
       // 2. Natural Knee Kinematics:
       // Smoothly level resting asymmetry during locomotion
-      const crouchAsymKnee = 0.05 * crouchWalkWeight;
+      const crouchAsymKnee = 0.05 * crouchWalkWeight * proneLegFade;
       // Swing lift: knee flexes deeper when foot swings forward to clear ground cleanly
-      const lCrouchKneeSwing = -Math.pow(Math.max(0, lCos), 1.3) * 0.36 * crouchWalkWeight;
-      const rCrouchKneeSwing = -Math.pow(Math.max(0, rCos), 1.3) * 0.36 * crouchWalkWeight;
+      const lCrouchKneeSwing = -Math.pow(Math.max(0, lCos), 1.3) * 0.36 * crouchWalkWeight * proneLegFade;
+      const rCrouchKneeSwing = -Math.pow(Math.max(0, rCos), 1.3) * 0.36 * crouchWalkWeight * proneLegFade;
       // Foot plant / touchdown reach extension
-      const lCrouchKneePlant = Math.max(0, lSwing) * 0.16 * crouchWalkWeight;
-      const rCrouchKneePlant = Math.max(0, rSwing) * 0.16 * crouchWalkWeight;
+      const lCrouchKneePlant = Math.max(0, lSwing) * 0.16 * crouchWalkWeight * proneLegFade;
+      const rCrouchKneePlant = Math.max(0, rSwing) * 0.16 * crouchWalkWeight * proneLegFade;
       // Trailing leg push-off extension
-      const lCrouchKneePush = Math.max(0, -lSwing) * 0.20 * crouchWalkWeight;
-      const rCrouchKneePush = Math.max(0, -rSwing) * 0.20 * crouchWalkWeight;
+      const lCrouchKneePush = Math.max(0, -lSwing) * 0.20 * crouchWalkWeight * proneLegFade;
+      const rCrouchKneePush = Math.max(0, -rSwing) * 0.20 * crouchWalkWeight * proneLegFade;
       const lKneeCrouchOffset = -crouchAsymKnee + lCrouchKneeSwing + lCrouchKneePlant + lCrouchKneePush;
       const rKneeCrouchOffset = crouchAsymKnee + rCrouchKneeSwing + rCrouchKneePlant + rCrouchKneePush;
 
       // 3. Realistic Ankle Articulation:
       // Smoothly level resting asymmetry during locomotion
-      const crouchAsymAnkle = 0.05 * crouchWalkWeight;
+      const crouchAsymAnkle = 0.05 * crouchWalkWeight * proneLegFade;
       // Swing dip relaxation
-      const lCrouchAnkleSwing = -Math.max(0, lCos) * 0.18 * crouchWalkWeight;
-      const rCrouchAnkleSwing = -Math.max(0, rCos) * 0.18 * crouchWalkWeight;
+      const lCrouchAnkleSwing = -Math.max(0, lCos) * 0.18 * crouchWalkWeight * proneLegFade;
+      const rCrouchAnkleSwing = -Math.max(0, rCos) * 0.18 * crouchWalkWeight * proneLegFade;
       // Heel strike / foot plant dorsiflexion
-      const lCrouchAnkleStrike = Math.max(0, lSwing) * 0.14 * crouchWalkWeight;
-      const rCrouchAnkleStrike = Math.max(0, rSwing) * 0.14 * crouchWalkWeight;
+      const lCrouchAnkleStrike = Math.max(0, lSwing) * 0.14 * crouchWalkWeight * proneLegFade;
+      const rCrouchAnkleStrike = Math.max(0, rSwing) * 0.14 * crouchWalkWeight * proneLegFade;
       // Push-off toe roll
-      const lCrouchAnklePush = -Math.max(0, -lSwing) * 0.16 * crouchWalkWeight;
-      const rCrouchAnklePush = -Math.max(0, -rSwing) * 0.16 * crouchWalkWeight;
+      const lCrouchAnklePush = -Math.max(0, -lSwing) * 0.16 * crouchWalkWeight * proneLegFade;
+      const rCrouchAnklePush = -Math.max(0, -rSwing) * 0.16 * crouchWalkWeight * proneLegFade;
       const lAnkleCrouchOffset = crouchAsymAnkle + lCrouchAnkleSwing + lCrouchAnkleStrike + lCrouchAnklePush;
       const rAnkleCrouchOffset = -crouchAsymAnkle + rCrouchAnkleSwing + rCrouchAnkleStrike + rCrouchAnklePush;
 
       // 4. Subtle Torso Stabilization:
-      const crouchWalkSpine = Math.sin(gp * 2) * 0.018 * crouchWalkWeight;
+      const crouchWalkSpine = Math.sin(gp * 2) * 0.018 * crouchWalkWeight * proneLegFade;
 
       // Leg Kinematics: blend standing walking out as crouchT increases, and apply crouch walking offsets on top of the resting crouch pose
-      const standLegWeight = 1.0 - crouchT;
+      const standLegWeight = (1.0 - crouchT) * proneLegFade;
 
       if (b.leftUpLeg) {
         _q0.setFromAxisAngle(X_AXIS, (lThighAngle + lStepPlacement) * standLegWeight + leftCrouchThigh + lThighCrouchOffset);
@@ -734,12 +945,12 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
       // Counter-tilt neck in crouch so head stays looking forward alertly along horizon
       if (b.neck) {
-        _q0.setFromAxisAngle(X_AXIS, -0.30 * crouchT);
+        _q0.setFromAxisAngle(X_AXIS, -0.30 * crouchT * proneLegFade);
         b.neck.quaternion.multiply(_q0);
       }
 
       // In-air jump tuck
-      if (!player.isGrounded) {
+      if (!player.isGrounded && proneT < 0.1) {
         _q0.setFromAxisAngle(X_AXIS, 0.25);
         if (b.leftUpLeg) b.leftUpLeg.quaternion.multiply(_q0);
         if (b.rightUpLeg) b.rightUpLeg.quaternion.multiply(_q0);
@@ -747,7 +958,9 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         if (b.leftLeg) b.leftLeg.quaternion.multiply(_q1);
         if (b.rightLeg) b.rightLeg.quaternion.multiply(_q1);
       }
-    } else if (proneT >= 0.5 && !player.isDead) {
+    }
+
+    if (proneT > 0.001 && !player.isDead && !isInWater) {
       // 5. Military Prone Kinematics
       // Head alertly raised to look forward along sight line
       if (b.neck) {
@@ -833,8 +1046,8 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     }
 
     // 7. Human Shoulder and Arm Posing (Contralateral Locomotion Counter-Swing vs Weapon Hold)
-    if (tWeapon < 0.999 && proneT < 0.5 && !isInWater && !player.isVaulting && !player.isMantling) {
-      const unarmWeight = 1.0 - tWeapon;
+    if (tWeapon < 0.999 && proneLegFade > 0.001 && !isInWater && !player.isVaulting && !player.isMantling) {
+      const unarmWeight = (1.0 - tWeapon) * proneLegFade;
 
       // Locomotion arm swing amplitude (walk ~0.30 rad, sprint ~0.60 rad)
       const armSwingAmp = THREE.MathUtils.lerp(0.30, 0.60, sprintW) * locoW;
@@ -957,44 +1170,46 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     }
 
     // 8. Authentic Two-Handed Tactical Weapon Pose
-    if (tWeapon > 0.001 && proneT < 0.5 && !player.isDead) {
+    if (tWeapon > 0.001 && proneLegFade > 0.001 && !player.isDead) {
+      const weaponHoldWeight = tWeapon * proneLegFade;
+
       // Right Arm: Raises to shoulder pocket, hand grips weapon handle & trigger
       if (b.rightShoulder) {
-        _q0.setFromAxisAngle(Z_AXIS, 0.15 * tWeapon);
+        _q0.setFromAxisAngle(Z_AXIS, 0.15 * weaponHoldWeight);
         b.rightShoulder.quaternion.multiply(_q0);
       }
       if (b.rightArm) {
-        _q0.setFromAxisAngle(X_AXIS, 0.65 * tWeapon + 0.15 * aimT);
-        _q1.setFromAxisAngle(Z_AXIS, 0.28 * tWeapon);
+        _q0.setFromAxisAngle(X_AXIS, 0.65 * weaponHoldWeight + 0.15 * aimT);
+        _q1.setFromAxisAngle(Z_AXIS, 0.28 * weaponHoldWeight);
         _qDelta.multiplyQuaternions(_q0, _q1);
         b.rightArm.quaternion.multiply(_qDelta);
       }
       if (b.rightForeArm) {
-        _q0.setFromAxisAngle(X_AXIS, 0.85 * tWeapon + 0.10 * aimT);
+        _q0.setFromAxisAngle(X_AXIS, 0.85 * weaponHoldWeight + 0.10 * aimT);
         b.rightForeArm.quaternion.multiply(_q0);
       }
       if (b.rightHand) {
-        _q0.setFromAxisAngle(Y_AXIS, -0.30 * tWeapon);
+        _q0.setFromAxisAngle(Y_AXIS, -0.30 * weaponHoldWeight);
         b.rightHand.quaternion.multiply(_q0);
       }
 
       // Left Arm: Reaches across torso to cradle front handguard / foregrip
       if (b.leftShoulder) {
-        _q0.setFromAxisAngle(Z_AXIS, -0.15 * tWeapon);
+        _q0.setFromAxisAngle(Z_AXIS, -0.15 * weaponHoldWeight);
         b.leftShoulder.quaternion.multiply(_q0);
       }
       if (b.leftArm) {
-        _q0.setFromAxisAngle(X_AXIS, 0.55 * tWeapon + 0.12 * aimT);
-        _q1.setFromAxisAngle(Z_AXIS, -0.45 * tWeapon);
+        _q0.setFromAxisAngle(X_AXIS, 0.55 * weaponHoldWeight + 0.12 * aimT);
+        _q1.setFromAxisAngle(Z_AXIS, -0.45 * weaponHoldWeight);
         _qDelta.multiplyQuaternions(_q0, _q1);
         b.leftArm.quaternion.multiply(_qDelta);
       }
       if (b.leftForeArm) {
-        _q0.setFromAxisAngle(X_AXIS, 0.95 * tWeapon + 0.10 * aimT);
+        _q0.setFromAxisAngle(X_AXIS, 0.95 * weaponHoldWeight + 0.10 * aimT);
         b.leftForeArm.quaternion.multiply(_q0);
       }
       if (b.leftHand) {
-        _q0.setFromAxisAngle(Y_AXIS, 0.35 * tWeapon);
+        _q0.setFromAxisAngle(Y_AXIS, 0.35 * weaponHoldWeight);
         b.leftHand.quaternion.multiply(_q0);
       }
     }
