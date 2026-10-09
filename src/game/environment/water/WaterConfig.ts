@@ -44,7 +44,7 @@ export const DEFAULT_RIVER_WATER_CONFIG: WaterConfig = {
   id: 'tropical_freshwater_river',
   name: 'Tropical Freshwater River',
   type: 'river',
-  waterLevel: -1.35,
+  waterLevel: -0.70, // Raised by 0.65 units to match closer to top of mud banks
   flowSpeed: 0.45,
   waveScale: 1.8,
   waveSpeed: 0.8,

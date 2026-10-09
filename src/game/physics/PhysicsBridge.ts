@@ -243,10 +243,10 @@ export class PhysicsBridge {
       return baseTerrain;
     }
 
-    // Cast downward ray starting just above feet (+0.35m step reach).
+    // Cast downward ray starting above feet (+0.50m step reach).
     // Uses GROUND_RAY, solid=false (to prevent zero-toi penetration on start),
     // and strictly excludes player's own capsule and body!
-    const origin = new THREE.Vector3(x, currentFeetY + 0.35, z);
+    const origin = new THREE.Vector3(x, currentFeetY + 0.50, z);
     const downDir = new THREE.Vector3(0, -1, 0);
 
     const hit = this.castRay(
@@ -260,13 +260,13 @@ export class PhysicsBridge {
     );
 
     // Ground validation:
-    // 1. Must have traversed non-zero distance (toi > 0.02) to avoid internal self-collision artifacts
-    // 2. Must not be higher than legitimate step reach (hitPoint.y <= currentFeetY + 0.30)
+    // 1. Must have traversed non-zero distance (toi > 0.005) to avoid internal self-collision artifacts
+    // 2. Must not be higher than legitimate step reach (hitPoint.y <= currentFeetY + 0.45)
     // 3. Must have an upward-facing standable slope (normal.y >= 0.5)
     if (
       hit &&
-      hit.toi > 0.02 &&
-      hit.hitPoint.y <= currentFeetY + 0.30 &&
+      hit.toi > 0.005 &&
+      hit.hitPoint.y <= currentFeetY + 0.45 &&
       (!hit.normal || hit.normal.y >= 0.5)
     ) {
       return Math.max(baseTerrain, hit.hitPoint.y);
@@ -440,6 +440,13 @@ export class PhysicsBridge {
           Math.min(this._currentBounds.maxZ - radius, nextZ)
         );
 
+        // Synchronize player rigid body and colliders with final position immediately
+        this._playerBody.setTranslation(
+          new this._rapier.Vector3(nextX, startY + height / 2, nextZ),
+          true
+        );
+        this._world.propagateModifiedBodyPositionsToColliders();
+
         const finalVx = delta > 0.0001 ? mov.x / delta : vx;
         const finalVz = delta > 0.0001 ? mov.z / delta : vz;
 
@@ -481,6 +488,24 @@ export class PhysicsBridge {
     let curVx = vx;
     let curVz = vz;
 
+    // Filter obstacles spatially to avoid massive iteration loops
+    const maxTravel = Math.max(0.2, Math.hypot(vx, vz) * delta) + radius + 1.0;
+    const minX = startX - maxTravel;
+    const maxX = startX + maxTravel;
+    const minZ = startZ - maxTravel;
+    const maxZ = startZ + maxTravel;
+
+    const nearbyObstacles = this._obstacles.filter((obs) => {
+      const halfX = obs.size[0] / 2 + 0.5;
+      const halfZ = obs.size[2] / 2 + 0.5;
+      return (
+        obs.position[0] + halfX >= minX &&
+        obs.position[0] - halfX <= maxX &&
+        obs.position[2] + halfZ >= minZ &&
+        obs.position[2] - halfZ <= maxZ
+      );
+    });
+
     for (let step = 0; step < subSteps; step++) {
       let nextX = curX + curVx * subDt;
       let nextZ = curZ + curVz * subDt;
@@ -488,7 +513,7 @@ export class PhysicsBridge {
       for (let pass = 0; pass < 4; pass++) {
         let hadCollision = false;
 
-        for (const obs of this._obstacles) {
+        for (const obs of nearbyObstacles) {
           const topY = obs.position[1] + obs.size[1] / 2;
           const bottomY = obs.position[1] - obs.size[1] / 2;
 

@@ -92,6 +92,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const input = inputManager.state;
     const { deltaX, deltaY } = inputManager.consumeMouseDelta();
 
+    // Clamp frame delta to prevent physics explosion / delta spikes (max 50ms, min 1ms)
+    const dt = Math.min(Math.max(delta, 0.001), 0.05);
+
     // 1. MOUSE CAMERA ROTATION
     const isAiming = input.aim && !player.isDead && player.weaponState === 'ready';
     const sensitivity = isAiming ? 0.0016 : 0.0024;
@@ -104,20 +107,20 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     // Smooth recoil recovery (critically damped return to center)
     if (Math.abs(recoilPitchRef.current) > 0.0001) {
-      recoilPitchRef.current = THREE.MathUtils.damp(recoilPitchRef.current, 0, 8.5, delta);
+      recoilPitchRef.current = THREE.MathUtils.damp(recoilPitchRef.current, 0, 8.5, dt);
     } else {
       recoilPitchRef.current = 0;
     }
 
     if (Math.abs(recoilYawRef.current) > 0.0001) {
-      recoilYawRef.current = THREE.MathUtils.damp(recoilYawRef.current, 0, 10.0, delta);
+      recoilYawRef.current = THREE.MathUtils.damp(recoilYawRef.current, 0, 10.0, dt);
     } else {
       recoilYawRef.current = 0;
     }
 
     // Landing camera dip recovery
     if (landingDipRef.current > 0.001) {
-      landingDipRef.current = THREE.MathUtils.lerp(landingDipRef.current, 0, delta * 12);
+      landingDipRef.current = THREE.MathUtils.lerp(landingDipRef.current, 0, Math.min(1, dt * 12));
     } else {
       landingDipRef.current = 0;
     }
@@ -393,7 +396,8 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         let targetMoveX = 0;
         let targetMoveZ = 0;
 
-        const hasMoveInput = inputX !== 0 || inputZ !== 0;
+        const hasMoveKeys = Boolean(input.forward || input.backward || input.left || input.right);
+        const hasMoveInput = hasMoveKeys && (inputX !== 0 || inputZ !== 0);
 
         // Calculate normalized movement direction
         const moveDir = new THREE.Vector3();
@@ -402,50 +406,79 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         if (input.right) moveDir.add(cameraRight);
         if (input.left) moveDir.sub(cameraRight);
 
-        if (moveDir.lengthSq() > 0) {
+        if (hasMoveInput && moveDir.lengthSq() > 0.001) {
           moveDir.normalize();
           targetMoveX = moveDir.x * targetSpeed;
           targetMoveZ = moveDir.z * targetSpeed;
-          bobTimeRef.current += delta * (isSprinting ? 15 : isCrouching ? 8 : isProne ? 6 : 11);
-        }
+          bobTimeRef.current += dt * (isSprinting ? 15 : isCrouching ? 8 : isProne ? 6 : 11);
 
-        // Smooth acceleration / deceleration
-        const accelFactor = hasMoveInput ? 14 : 16;
-        velocity.current.x = THREE.MathUtils.lerp(velocity.current.x, targetMoveX, delta * accelFactor);
-        velocity.current.z = THREE.MathUtils.lerp(velocity.current.z, targetMoveZ, delta * accelFactor);
-
-        // Snap idle velocities to zero when no keys are pressed to prevent drift
-        if (!hasMoveInput && Math.abs(velocity.current.x) < 0.01 && Math.abs(velocity.current.z) < 0.01) {
+          // Smooth acceleration during active movement with clamped dt factor
+          velocity.current.x = THREE.MathUtils.lerp(velocity.current.x, targetMoveX, Math.min(1, dt * 14));
+          velocity.current.z = THREE.MathUtils.lerp(velocity.current.z, targetMoveZ, Math.min(1, dt * 14));
+        } else {
+          // When movement input is released, instantly zero velocity for crisp, predictable stopping
           velocity.current.x = 0;
           velocity.current.z = 0;
         }
 
+        // Clamp horizontal velocity magnitude to targetSpeed to prevent any excessive velocity or forward bursts
+        const currentSpeed = Math.hypot(velocity.current.x, velocity.current.z);
+        if (currentSpeed > targetSpeed && currentSpeed > 0.001) {
+          const scale = targetSpeed / currentSpeed;
+          velocity.current.x *= scale;
+          velocity.current.z *= scale;
+        }
+
         // Continuous Capsule Collision Resolution with Stance-Specific Height & Step Traversal
         const capsuleHeight = isProne ? PLAYER_PRONE_HEIGHT : isCrouching ? PLAYER_CROUCH_HEIGHT : PLAYER_HEIGHT;
-        const resolved = PhysicsBridge.resolveCapsuleMovement(
-          player.position[0],
-          player.position[1],
-          player.position[2],
-          velocity.current.x,
-          velocity.current.z,
-          delta,
-          PLAYER_RADIUS,
-          capsuleHeight,
-          isProne ? 0.15 : MAX_STEP_HEIGHT
-        );
+        const capsuleRadius = isProne ? 0.09 : PLAYER_RADIUS;
+        const maxStep = isProne ? 0.05 : MAX_STEP_HEIGHT;
 
-        player.position[0] = resolved.x;
-        player.position[1] = resolved.y;
-        player.position[2] = resolved.z;
-        velocity.current.x = resolved.vx;
-        velocity.current.z = resolved.vz;
+        let resolvedX = player.position[0];
+        let resolvedY = player.position[1];
+        let resolvedZ = player.position[2];
+
+        if (hasMoveInput && (Math.abs(velocity.current.x) > 0.001 || Math.abs(velocity.current.z) > 0.001)) {
+          const resolved = PhysicsBridge.resolveCapsuleMovement(
+            player.position[0],
+            player.position[1],
+            player.position[2],
+            velocity.current.x,
+            velocity.current.z,
+            dt,
+            capsuleRadius,
+            capsuleHeight,
+            maxStep
+          );
+          resolvedX = resolved.x;
+          resolvedY = resolved.y;
+          resolvedZ = resolved.z;
+
+          // Slide velocity: preserve sliding along obstacles, but strictly clamp to targetSpeed to avoid depenetration bursts
+          const resolvedSpeed = Math.hypot(resolved.vx, resolved.vz);
+          if (resolvedSpeed > targetSpeed && resolvedSpeed > 0.001) {
+            const scale = targetSpeed / resolvedSpeed;
+            velocity.current.x = resolved.vx * scale;
+            velocity.current.z = resolved.vz * scale;
+          } else if (resolvedSpeed <= targetSpeed) {
+            velocity.current.x = resolved.vx;
+            velocity.current.z = resolved.vz;
+          }
+        } else {
+          velocity.current.x = 0;
+          velocity.current.z = 0;
+        }
+
+        player.position[0] = resolvedX;
+        player.position[1] = resolvedY;
+        player.position[2] = resolvedZ;
 
         // 8. JUMP, GRAVITY & GROUND/OBSTACLE TOP DETECTION
         const groundHeight = PhysicsBridge.getGroundHeight(
           player.position[0],
           player.position[2],
           player.position[1],
-          PLAYER_RADIUS
+          capsuleRadius
         );
 
         if (input.jump && isGrounded.current && stanceRef.current === 'standing' && !player.isDead) {
@@ -454,16 +487,30 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
           wasInAir.current = true;
         }
 
-        // Check if player has stepped off an edge or is in the air
-        if (player.position[1] > groundHeight + 0.04) {
-          isGrounded.current = false;
-        }
+        // Ground adherence & step-down vs airborne logic
+        if (isGrounded.current && verticalVelocity.current <= 0) {
+          const stepDiff = player.position[1] - groundHeight;
+          if (stepDiff >= -0.01 && stepDiff <= MAX_STEP_HEIGHT) {
+            // Smoothly adhere to ground/obstacle surface (walking down small bumps/slopes without false airborne triggers)
+            player.position[1] = groundHeight;
+            verticalVelocity.current = 0;
+            isGrounded.current = true;
+          } else if (stepDiff > MAX_STEP_HEIGHT) {
+            // Stepped off a true cliff/ledge higher than step height
+            isGrounded.current = false;
+            wasInAir.current = true;
+          } else {
+            // Penetrated into upward step/slope: snap to surface
+            player.position[1] = groundHeight;
+            verticalVelocity.current = 0;
+            isGrounded.current = true;
+          }
+        } else {
+          // Airborne (jumping or falling): apply gravity with clamped dt
+          verticalVelocity.current -= GRAVITY * dt;
+          player.position[1] += verticalVelocity.current * dt;
 
-        if (!isGrounded.current) {
-          verticalVelocity.current -= GRAVITY * delta;
-          player.position[1] += verticalVelocity.current * delta;
-
-          // Landing check (ground or top of obstacle)
+          // Landing check
           if (player.position[1] <= groundHeight) {
             player.position[1] = groundHeight;
             verticalVelocity.current = 0;
@@ -475,10 +522,6 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
               wasInAir.current = false;
             }
           }
-        } else {
-          // Grounded: smoothly adhere to ground/obstacle surface
-          player.position[1] = groundHeight;
-          verticalVelocity.current = 0;
         }
 
         // Sector-02 River Water State & Wading/Swimming Detection
@@ -497,7 +540,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
               // Deep water: swimming / diving
               // Buoyancy: smoothly float toward swimming surface unless actively diving
               if (!input.crouch && player.position[1] < swimSurfaceY && !isProne) {
-                player.position[1] = THREE.MathUtils.lerp(player.position[1], swimSurfaceY, delta * 4.0);
+                player.position[1] = THREE.MathUtils.lerp(player.position[1], swimSurfaceY, Math.min(1, dt * 4.0));
                 verticalVelocity.current = 0;
                 isGrounded.current = false;
               }
@@ -505,11 +548,11 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
               // Vertical swimming controls:
               // Jump [SPACE] swims up towards surface
               if (input.jump && player.position[1] < swimSurfaceY) {
-                player.position[1] += 2.2 * delta;
+                player.position[1] += 2.2 * dt;
               }
               // Crouch [C] dives downward towards riverbed
               if (input.crouch && player.position[1] > groundHeight + 0.1) {
-                player.position[1] -= 2.2 * delta;
+                player.position[1] -= 2.2 * dt;
               }
 
               // In horizontal swimming, head height above position[1] is ~0.35m
@@ -550,7 +593,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
         // Smooth rotation interpolation toward targetFacingAngle
         const diff = THREE.MathUtils.euclideanModulo(targetFacingAngle - player.rotationY + Math.PI, Math.PI * 2) - Math.PI;
-        player.rotationY += diff * Math.min(1, delta * (isAiming ? 20 : 12));
+        player.rotationY += diff * Math.min(1, dt * (isAiming ? 20 : 12));
 
         player.pitch = pitchRef.current + recoilPitchRef.current;
       }
@@ -819,7 +862,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       currentCamPos.current.copy(desiredCamPos);
       currentLookAt.current.copy(targetPivot);
     } else {
-      const damp = isAiming ? 18 * delta : 12 * delta;
+      const damp = isAiming ? 18 * dt : 12 * dt;
       currentCamPos.current.lerp(desiredCamPos, Math.min(1, damp));
       currentLookAt.current.lerp(targetPivot, Math.min(1, damp));
     }

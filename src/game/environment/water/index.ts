@@ -6,3 +6,6 @@ export * from './WaterConfig';
 export * from './WaterSurface';
 export * from './UnderwaterAtmosphere';
 export * from './WaterSystem';
+export * from './testPondConfig';
+export * from './TestPondWater';
+export * from './TestPond';
