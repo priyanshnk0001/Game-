@@ -257,8 +257,8 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
   const initialStance: StanceWaypoint = player.isProne
     ? 'prone'
     : player.isCrouching
-    ? 'crouch_resting'
-    : 'standing';
+      ? 'crouch_resting'
+      : 'standing';
 
   const currentStanceRef = useRef<StanceWaypoint>(initialStance);
   const desiredGoalRef = useRef<StanceWaypoint>(initialStance);
@@ -616,29 +616,29 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
       const contactPoints = (!player.isDead && isMoving)
         ? [
-            { bone: b.leftFoot, radius: 0.080 },
-            { bone: b.rightFoot, radius: 0.080 },
-            { bone: b.leftToeBase, radius: 0.040 },
-            { bone: b.rightToeBase, radius: 0.040 },
-          ]
+          { bone: b.leftFoot, radius: 0.080 },
+          { bone: b.rightFoot, radius: 0.080 },
+          { bone: b.leftToeBase, radius: 0.040 },
+          { bone: b.rightToeBase, radius: 0.040 },
+        ]
         : [
-            { bone: b.leftFoot, radius: 0.080 },
-            { bone: b.rightFoot, radius: 0.080 },
-            { bone: b.leftToeBase, radius: 0.040 },
-            { bone: b.rightToeBase, radius: 0.040 },
-            { bone: b.leftToeEnd, radius: 0.025 },
-            { bone: b.rightToeEnd, radius: 0.025 },
-            { bone: b.leftLeg, radius: 0.080 },
-            { bone: b.rightLeg, radius: 0.080 },
-            { bone: b.leftUpLeg, radius: 0.090 },
-            { bone: b.rightUpLeg, radius: 0.090 },
-            { bone: b.hips, radius: 0.110 },
-            { bone: b.spine, radius: 0.110 },
-            { bone: b.leftForeArm, radius: 0.055 },
-            { bone: b.rightForeArm, radius: 0.055 },
-            { bone: b.leftHand, radius: 0.045 },
-            { bone: b.rightHand, radius: 0.045 },
-          ];
+          { bone: b.leftFoot, radius: 0.080 },
+          { bone: b.rightFoot, radius: 0.080 },
+          { bone: b.leftToeBase, radius: 0.040 },
+          { bone: b.rightToeBase, radius: 0.040 },
+          { bone: b.leftToeEnd, radius: 0.025 },
+          { bone: b.rightToeEnd, radius: 0.025 },
+          { bone: b.leftLeg, radius: 0.080 },
+          { bone: b.rightLeg, radius: 0.080 },
+          { bone: b.leftUpLeg, radius: 0.090 },
+          { bone: b.rightUpLeg, radius: 0.090 },
+          { bone: b.hips, radius: 0.110 },
+          { bone: b.spine, radius: 0.110 },
+          { bone: b.leftForeArm, radius: 0.055 },
+          { bone: b.rightForeArm, radius: 0.055 },
+          { bone: b.leftHand, radius: 0.045 },
+          { bone: b.rightHand, radius: 0.045 },
+        ];
 
       const GROUND_MARGIN = 0.002; // 2mm solid contact margin
       let minDelta = Infinity;
@@ -970,9 +970,10 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
     if (proneT > 0.001 && !player.isDead && !isInWater) {
       // 5. Military Prone Kinematics
-      // Head alertly raised to look forward along sight line
+      // Head alertly raised to look forward along sight line (-0.75 resting, -1.05 crawling)
       if (b.neck) {
-        _q0.setFromAxisAngle(X_AXIS, -0.35 * proneT);
+        const neckPitch = THREE.MathUtils.lerp(-0.55, -1.05, locoW) * proneT;
+        _q0.setFromAxisAngle(X_AXIS, neckPitch);
         b.neck.quaternion.multiply(_q0);
       }
 
