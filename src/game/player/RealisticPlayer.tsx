@@ -604,49 +604,118 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       const lAnkle = (-lSwing * -0.58 + (lCos > 0.2 ? 0.16 : -0.12 * Math.max(0, -lCos))) * locoW;
       const rAnkle = (-rSwing * -0.58 + (rCos > 0.2 ? 0.16 : -0.12 * Math.max(0, -rCos))) * locoW;
 
-      // PUBG tactical combat crouch geometry (independent per-side tuning controls):
-      // Left leg crouch controls:
-      const leftCrouchThigh = 1.86 * crouchT;
-      const leftCrouchKnee = -2.48 * crouchT;
-      const leftCrouchAnkle = 0.58 * crouchT;
+      // 1. Original default resting crouch pose (preserved exactly from existing code)
+      const leftCrouchRestThigh = 1.86 * crouchT;
+      const leftCrouchRestKnee = -2.48 * crouchT;
+      const leftCrouchRestAnkle = 0.58 * crouchT;
 
-      // Right leg crouch controls:
-      const rightCrouchThigh = 0.86 * crouchT;
-      const rightCrouchKnee = -2.58 * crouchT;
-      const rightCrouchAnkle = -0.48 * crouchT;
+      const rightCrouchRestThigh = 0.86 * crouchT;
+      const rightCrouchRestKnee = -2.58 * crouchT;
+      const rightCrouchRestAnkle = -0.48 * crouchT;
 
-      const crouchSpine = 0.35 * crouchT;
+      const crouchRestSpine = 0.35 * crouchT;
 
-      // Locomotion swing is suppressed 80% in full crouch so stealth gait doesn't override the crouch pose
+      // 2. Crouch-walking base pose (active when moving while crouched)
+      const leftCrouchWalkThigh = 1.36 * crouchT;
+      const leftCrouchWalkKnee = -1.78 * crouchT;
+      const leftCrouchWalkAnkle = 0.58 * crouchT;
+
+      const rightCrouchWalkThigh = 0.86 * crouchT;
+      const rightCrouchWalkKnee = -1.88 * crouchT;
+      const rightCrouchWalkAnkle = 0.68 * crouchT;
+
+      const crouchWalkSpineBase = 0.55 * crouchT;
+
+      // Smooth transition weight between resting crouch and crouch-walking
+      const crouchWalkWeight = crouchT * locoW;
+
+      // Interpolate base crouch pose: default stationary crouch at locoW = 0, crouch-walking pose at locoW = 1
+      const leftCrouchThigh = THREE.MathUtils.lerp(leftCrouchRestThigh, leftCrouchWalkThigh, crouchWalkWeight);
+      const leftCrouchKnee = THREE.MathUtils.lerp(leftCrouchRestKnee, leftCrouchWalkKnee, crouchWalkWeight);
+      const leftCrouchAnkle = THREE.MathUtils.lerp(leftCrouchRestAnkle, leftCrouchWalkAnkle, crouchWalkWeight);
+
+      const rightCrouchThigh = THREE.MathUtils.lerp(rightCrouchRestThigh, rightCrouchWalkThigh, crouchWalkWeight);
+      const rightCrouchKnee = THREE.MathUtils.lerp(rightCrouchRestKnee, rightCrouchWalkKnee, crouchWalkWeight);
+      const rightCrouchAnkle = THREE.MathUtils.lerp(rightCrouchRestAnkle, rightCrouchWalkAnkle, crouchWalkWeight);
+
+      const crouchSpine = THREE.MathUtils.lerp(crouchRestSpine, crouchWalkSpineBase, crouchWalkWeight);
+
+      // PUBG/BGMI tactical crouch-walking gait offsets (applied smoothly on top of resting crouch pose)
+
+      // 1. Alternating Thigh Kinematics:
+      // Smoothly level resting asymmetry during locomotion so both legs have symmetric, balanced strides
+      const crouchAsymThigh = 0.25 * crouchWalkWeight;
+      const crouchThighAmp = 0.35 * crouchWalkWeight;
+      const lCrouchStepPlacement = Math.max(0, Math.sin(lPhase - 0.45)) * 0.10 * crouchWalkWeight;
+      const rCrouchStepPlacement = Math.max(0, Math.sin(rPhase - 0.45)) * 0.10 * crouchWalkWeight;
+      const lThighCrouchOffset = -crouchAsymThigh + lSwing * crouchThighAmp + lCrouchStepPlacement;
+      const rThighCrouchOffset = crouchAsymThigh + rSwing * crouchThighAmp + rCrouchStepPlacement;
+
+      // 2. Natural Knee Kinematics:
+      // Smoothly level resting asymmetry during locomotion
+      const crouchAsymKnee = 0.05 * crouchWalkWeight;
+      // Swing lift: knee flexes deeper when foot swings forward to clear ground cleanly
+      const lCrouchKneeSwing = -Math.pow(Math.max(0, lCos), 1.3) * 0.36 * crouchWalkWeight;
+      const rCrouchKneeSwing = -Math.pow(Math.max(0, rCos), 1.3) * 0.36 * crouchWalkWeight;
+      // Foot plant / touchdown reach extension
+      const lCrouchKneePlant = Math.max(0, lSwing) * 0.16 * crouchWalkWeight;
+      const rCrouchKneePlant = Math.max(0, rSwing) * 0.16 * crouchWalkWeight;
+      // Trailing leg push-off extension
+      const lCrouchKneePush = Math.max(0, -lSwing) * 0.20 * crouchWalkWeight;
+      const rCrouchKneePush = Math.max(0, -rSwing) * 0.20 * crouchWalkWeight;
+      const lKneeCrouchOffset = -crouchAsymKnee + lCrouchKneeSwing + lCrouchKneePlant + lCrouchKneePush;
+      const rKneeCrouchOffset = crouchAsymKnee + rCrouchKneeSwing + rCrouchKneePlant + rCrouchKneePush;
+
+      // 3. Realistic Ankle Articulation:
+      // Smoothly level resting asymmetry during locomotion
+      const crouchAsymAnkle = 0.05 * crouchWalkWeight;
+      // Swing dip relaxation
+      const lCrouchAnkleSwing = -Math.max(0, lCos) * 0.18 * crouchWalkWeight;
+      const rCrouchAnkleSwing = -Math.max(0, rCos) * 0.18 * crouchWalkWeight;
+      // Heel strike / foot plant dorsiflexion
+      const lCrouchAnkleStrike = Math.max(0, lSwing) * 0.14 * crouchWalkWeight;
+      const rCrouchAnkleStrike = Math.max(0, rSwing) * 0.14 * crouchWalkWeight;
+      // Push-off toe roll
+      const lCrouchAnklePush = -Math.max(0, -lSwing) * 0.16 * crouchWalkWeight;
+      const rCrouchAnklePush = -Math.max(0, -rSwing) * 0.16 * crouchWalkWeight;
+      const lAnkleCrouchOffset = crouchAsymAnkle + lCrouchAnkleSwing + lCrouchAnkleStrike + lCrouchAnklePush;
+      const rAnkleCrouchOffset = -crouchAsymAnkle + rCrouchAnkleSwing + rCrouchAnkleStrike + rCrouchAnklePush;
+
+      // 4. Subtle Torso Stabilization:
+      const crouchWalkSpine = Math.sin(gp * 2) * 0.018 * crouchWalkWeight;
+
+      // Leg Kinematics: blend standing walking out as crouchT increases, and apply crouch walking offsets on top of the resting crouch pose
+      const standLegWeight = 1.0 - crouchT;
+
       if (b.leftUpLeg) {
-        _q0.setFromAxisAngle(X_AXIS, (lThighAngle + lStepPlacement) * (1.0 - crouchT * 0.80) + leftCrouchThigh);
+        _q0.setFromAxisAngle(X_AXIS, (lThighAngle + lStepPlacement) * standLegWeight + leftCrouchThigh + lThighCrouchOffset);
         b.leftUpLeg.quaternion.multiply(_q0);
       }
       if (b.rightUpLeg) {
-        _q0.setFromAxisAngle(X_AXIS, (rThighAngle + rStepPlacement) * (1.0 - crouchT * 0.80) + rightCrouchThigh);
+        _q0.setFromAxisAngle(X_AXIS, (rThighAngle + rStepPlacement) * standLegWeight + rightCrouchThigh + rThighCrouchOffset);
         b.rightUpLeg.quaternion.multiply(_q0);
       }
 
       if (b.leftLeg) {
-        _q0.setFromAxisAngle(X_AXIS, lKneeFlex * (1.0 - crouchT * 0.80) + leftCrouchKnee);
+        _q0.setFromAxisAngle(X_AXIS, lKneeFlex * standLegWeight + leftCrouchKnee + lKneeCrouchOffset);
         b.leftLeg.quaternion.multiply(_q0);
       }
       if (b.rightLeg) {
-        _q0.setFromAxisAngle(X_AXIS, rKneeFlex * (1.0 - crouchT * 0.80) + rightCrouchKnee);
+        _q0.setFromAxisAngle(X_AXIS, rKneeFlex * standLegWeight + rightCrouchKnee + rKneeCrouchOffset);
         b.rightLeg.quaternion.multiply(_q0);
       }
 
       if (b.leftFoot) {
-        _q0.setFromAxisAngle(X_AXIS, lAnkle * (1.0 - crouchT * 0.80) + leftCrouchAnkle);
+        _q0.setFromAxisAngle(X_AXIS, lAnkle * standLegWeight + leftCrouchAnkle + lAnkleCrouchOffset);
         b.leftFoot.quaternion.multiply(_q0);
       }
       if (b.rightFoot) {
-        _q0.setFromAxisAngle(X_AXIS, rAnkle * (1.0 - crouchT * 0.80) + rightCrouchAnkle);
+        _q0.setFromAxisAngle(X_AXIS, rAnkle * standLegWeight + rightCrouchAnkle + rAnkleCrouchOffset);
         b.rightFoot.quaternion.multiply(_q0);
       }
 
       if (b.spine) {
-        _q0.setFromAxisAngle(X_AXIS, crouchSpine);
+        _q0.setFromAxisAngle(X_AXIS, crouchSpine + crouchWalkSpine);
         b.spine.quaternion.multiply(_q0);
       }
 
