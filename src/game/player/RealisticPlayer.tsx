@@ -980,21 +980,21 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       // Anatomical Military Prone Arm Support Position (Shoulder -> Upper Arm -> Forearm -> Hand)
       // 1. Shoulders: rotate to bring upper arms forward and outward naturally
       if (b.leftShoulder) {
-        _q0.setFromAxisAngle(Z_AXIS, -0.35 * proneT);
+        _q0.setFromAxisAngle(Z_AXIS, 0.15 * proneT);
         b.leftShoulder.quaternion.multiply(_q0);
       }
       if (b.rightShoulder) {
-        _q0.setFromAxisAngle(Z_AXIS, 0.35 * proneT);
+        _q0.setFromAxisAngle(Z_AXIS, 0.15 * proneT);
         b.rightShoulder.quaternion.multiply(_q0);
       }
 
       // 2. Upper arms: angle down toward the ground and forward
       if (b.leftArm) {
-        _q0.setFromEuler(new THREE.Euler(-0.70 * proneT, 0, 0.80 * proneT));
+        _q0.setFromEuler(new THREE.Euler(-1.30 * proneT, 0, 0.80 * proneT));
         b.leftArm.quaternion.multiply(_q0);
       }
       if (b.rightArm) {
-        _q0.setFromEuler(new THREE.Euler(-0.70 * proneT, 0, -0.80 * proneT));
+        _q0.setFromEuler(new THREE.Euler(-1.30 * proneT, 0, -0.80 * proneT));
         b.rightArm.quaternion.multiply(_q0);
       }
 
