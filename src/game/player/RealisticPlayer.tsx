@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import { useGLTF, Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { applyTacticalOutfitToPlayer } from './TacticalOutfit';
 import { PlayerState } from '../../types/game';
 import { WEAPON_SPAWNS } from '../../config/constants';
 import { RealisticWeapon } from '../weapons/RealisticWeapon';
@@ -189,6 +190,9 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         });
       }
     });
+
+    // Transform character to wear realistic tactical combat suit (shirt, pants, boots, gloves, vest & gear)
+    applyTacticalOutfitToPlayer(clone);
 
     return clone;
   }, [scene]);
