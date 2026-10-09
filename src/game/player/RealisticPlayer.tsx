@@ -276,7 +276,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
   }>({
     isActive: false,
     time: 0,
-    duration: 0.28,
+    duration: 0.23,
     fromCoords: { ...WAYPOINT_COORDS[initialStance] },
     stages: [initialStance],
   });
@@ -445,8 +445,8 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
       const stages = getWaypointSequence(currentStanceRef.current, desiredGoal);
       const numStages = stages.length;
-      // Fluid continuous timing without sequential pauses: 3 stages (0.72s), 2 stages (0.50s), 1 stage (0.28s)
-      const duration = numStages === 3 ? 0.72 : numStages === 2 ? 0.50 : 0.28;
+      // Fluid continuous timing without sequential pauses (18% faster): 3 stages (0.59s), 2 stages (0.41s), 1 stage (0.23s)
+      const duration = numStages === 3 ? 0.59 : numStages === 2 ? 0.41 : 0.23;
 
       transitionRef.current = {
         isActive: true,
@@ -552,7 +552,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       } else {
         // Seamless continuous blend: Standing -> Crouch -> Prone
         const targetRotX = (Math.PI / 2) * proneT;
-        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, targetRotX, Math.min(1, dt * 18));
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, targetRotX, Math.min(1, dt * 22));
         characterGroupRef.current.rotation.y = 0;
 
         // Vertical and depth offsets:
