@@ -27,6 +27,16 @@ const X_AXIS = new THREE.Vector3(1, 0, 0);
 const Y_AXIS = new THREE.Vector3(0, 1, 0);
 const Z_AXIS = new THREE.Vector3(0, 0, 1);
 
+// Anatomically calibrated crouch vertical drop lookup table:
+// In stationary crouch, hips lower 0.5786m so the kneeling knee and planted foot rest naturally on the terrain throughout the transition without feet lifting or penetrating.
+const CROUCH_REST_DROP_LUT = [0, 0, 0.0132, 0.0438, 0.0896, 0.1494, 0.2218, 0.3050, 0.3970, 0.4953, 0.5786];
+const getCrouchRestDrop = (t: number) => {
+  const clampedT = Math.min(1.0, Math.max(0.0, t));
+  const idx = Math.min(9, Math.floor(clampedT * 10));
+  const frac = (clampedT * 10) - idx;
+  return CROUCH_REST_DROP_LUT[idx] + (CROUCH_REST_DROP_LUT[idx + 1] - CROUCH_REST_DROP_LUT[idx]) * frac;
+};
+
 export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLocal }) => {
   const rootGroupRef = useRef<THREE.Group>(null);
   const characterGroupRef = useRef<THREE.Group>(null);
@@ -271,6 +281,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     proneProgressRef.current = THREE.MathUtils.lerp(proneProgressRef.current, targetProne, Math.min(1, dt * 6));
     const crouchT = crouchProgressRef.current;
     const proneT = proneProgressRef.current;
+    const crouchWalkWeight = crouchT * locoW;
 
     // Weapon state transition smoothing
     const isSlot1Ready = player.activeSlot === 1 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
@@ -328,10 +339,15 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
         characterGroupRef.current.rotation.y = 0;
 
         // Vertical and depth offsets:
-        // TACTICAL CROUCH: hips drop 0.25m and shift back 0.08m to counterbalance forward torso and knees.
-        // Prone lowers torso to 0.10m ground contact and shifts Z by -0.70m to center hips in capsule.
+        // Anatomically calibrated crouch vertical drop (ensures feet remain planted on ground as knees bend)
+        // In stationary crouch, hips lower 0.5786m so the kneeling knee and planted foot rest naturally on the terrain.
+        // In crouch-walking, hips lower 0.31m so the bent-knee gait maintains grounded foot clearance.
+        const crouchRestDrop = getCrouchRestDrop(crouchT);
+        const crouchWalkDrop = 0.31 * crouchT;
+        const crouchVerticalDrop = THREE.MathUtils.lerp(crouchRestDrop, crouchWalkDrop, crouchWalkWeight);
+
         const crawlBob = proneT > 0.05 && isMoving ? Math.abs(Math.sin(gp * 2)) * 0.015 * proneT : 0;
-        const targetPosY = (0.10 * proneT) + crawlBob + (-0.15 * crouchT * (1.0 - proneT)) + pelvisBob * (1.0 - proneT);
+        const targetPosY = (0.10 * proneT) + crawlBob - (crouchVerticalDrop * (1.0 - proneT)) + pelvisBob * (1.0 - proneT);
         const targetPosZ = (-0.08 * crouchT * (1.0 - proneT)) + (-0.70 * proneT);
         const targetPosX = (proneT > 0.05 && isMoving ? Math.sin(gp) * 0.03 * proneT : 0) + pelvisSwayX * (1.0 - proneT);
 
@@ -625,9 +641,6 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       const rightCrouchWalkAnkle = 0.68 * crouchT;
 
       const crouchWalkSpineBase = 0.55 * crouchT;
-
-      // Smooth transition weight between resting crouch and crouch-walking
-      const crouchWalkWeight = crouchT * locoW;
 
       // Interpolate base crouch pose: default stationary crouch at locoW = 0, crouch-walking pose at locoW = 1
       const leftCrouchThigh = THREE.MathUtils.lerp(leftCrouchRestThigh, leftCrouchWalkThigh, crouchWalkWeight);
