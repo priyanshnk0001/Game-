@@ -67,6 +67,14 @@ function getWaypointSequence(from: StanceWaypoint, to: StanceWaypoint): StanceWa
   return seq;
 }
 
+// Perlin C2 quintic smootherstep for zero-jerk acceleration and velocity continuity at blend boundaries
+const smootherstep = (x: number, min: number, max: number) => {
+  if (x <= min) return 0;
+  if (x >= max) return 1;
+  const t = (x - min) / (max - min);
+  return t * t * t * (t * (t * 6 - 15) + 10);
+};
+
 // Seamless overlapping blend window evaluator for multi-stage stance transitions
 function evaluateStanceTransition(
   fromCoords: { crouchT: number; crouchStyle: number; proneT: number },
@@ -78,7 +86,7 @@ function evaluateStanceTransition(
 
   if (n <= 1) {
     const target = WAYPOINT_COORDS[stages[0] || 'standing'];
-    const t = THREE.MathUtils.smoothstep(p, 0.0, 1.0);
+    const t = smootherstep(p, 0.0, 1.0);
     return {
       crouchT: THREE.MathUtils.lerp(fromCoords.crouchT, target.crouchT, t),
       crouchStyle: THREE.MathUtils.lerp(fromCoords.crouchStyle, target.crouchStyle, t),
@@ -90,11 +98,11 @@ function evaluateStanceTransition(
     const p1 = WAYPOINT_COORDS[stages[0]];
     const p2 = WAYPOINT_COORDS[stages[1]];
 
-    // Overlapping blend windows:
-    // Stage 1 active p: 0.00 -> 0.60
-    // Stage 2 active p: 0.40 -> 1.00
-    const t1 = THREE.MathUtils.smoothstep(p, 0.0, 0.60);
-    const t2 = THREE.MathUtils.smoothstep(p, 0.40, 1.00);
+    // Refined overlapping blend windows with continuous C2 velocity curve:
+    // Stage 1 active p: 0.00 -> 0.65
+    // Stage 2 active p: 0.35 -> 1.00 (wide 30% overlap window)
+    const t1 = smootherstep(p, 0.0, 0.65);
+    const t2 = smootherstep(p, 0.35, 1.00);
 
     const c1 = THREE.MathUtils.lerp(fromCoords.crouchT, p1.crouchT, t1);
     const s1 = THREE.MathUtils.lerp(fromCoords.crouchStyle, p1.crouchStyle, t1);
@@ -112,13 +120,13 @@ function evaluateStanceTransition(
   const p2 = WAYPOINT_COORDS[stages[1]];
   const p3 = WAYPOINT_COORDS[stages[2]];
 
-  // Overlapping blend windows:
-  // Stage 1 active p: 0.00 -> 0.42
-  // Stage 2 active p: 0.28 -> 0.72
-  // Stage 3 active p: 0.58 -> 1.00
-  const t1 = THREE.MathUtils.smoothstep(p, 0.0, 0.42);
-  const t2 = THREE.MathUtils.smoothstep(p, 0.28, 0.72);
-  const t3 = THREE.MathUtils.smoothstep(p, 0.58, 1.00);
+  // Refined overlapping blend windows with continuous C2 velocity curve:
+  // Stage 1 active p: 0.00 -> 0.48
+  // Stage 2 active p: 0.22 -> 0.78 (wide 26% overlap with Stage 1)
+  // Stage 3 active p: 0.52 -> 1.00 (wide 26% overlap with Stage 2)
+  const t1 = smootherstep(p, 0.0, 0.48);
+  const t2 = smootherstep(p, 0.22, 0.78);
+  const t3 = smootherstep(p, 0.52, 1.00);
 
   const c1 = THREE.MathUtils.lerp(fromCoords.crouchT, p1.crouchT, t1);
   const s1 = THREE.MathUtils.lerp(fromCoords.crouchStyle, p1.crouchStyle, t1);
@@ -467,7 +475,7 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       // Update currentStanceRef as progress passes milestone thresholds so interruptions reverse seamlessly
       const n = tr.stages.length;
       if (n === 3) {
-        if (progress >= 0.70) currentStanceRef.current = tr.stages[2];
+        if (progress >= 0.65) currentStanceRef.current = tr.stages[2];
         else if (progress >= 0.35) currentStanceRef.current = tr.stages[1];
       } else if (n === 2) {
         if (progress >= 0.50) currentStanceRef.current = tr.stages[1];
