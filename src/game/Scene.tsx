@@ -97,7 +97,13 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
           </Suspense>
         )}
 
-        {/* 5. Realistic Rigged Vanguard Tactical Soldiers */}
+        {/* 5. Tactical Third-Person Player Controller */}
+        <PlayerController
+          activeId={activeId}
+          onNearWeaponChange={onNearWeaponChange}
+        />
+
+        {/* 6. Realistic Rigged Vanguard Tactical Soldiers */}
         <Suspense fallback={null}>
           <RealisticPlayer
             player={state.players.player1}
@@ -109,17 +115,11 @@ export const Scene: React.FC<SceneProps> = ({ onNearWeaponChange }) => {
           />
         </Suspense>
 
-        {/* 6. High-Velocity Bullet Tracers and Impact Sparks */}
+        {/* 7. High-Velocity Bullet Tracers and Impact Sparks */}
         <BulletManager bullets={state.bullets} />
 
-        {/* 7. Bullet Impact Marks / Decals on Solid Surfaces */}
+        {/* 8. Bullet Impact Marks / Decals on Solid Surfaces */}
         <DecalManager decals={state.decals} />
-
-        {/* 8. Tactical Third-Person Player Controller */}
-        <PlayerController
-          activeId={activeId}
-          onNearWeaponChange={onNearWeaponChange}
-        />
         {/* 8. Optional Collision Wireframe Visualizer (when ?debug=1 or VITE_GAME_DEBUG=true) */}
         <CollisionDebugVisualizer />
         {/* 9. Optional Aim Target Debug Marker (when ?debug=1 or VITE_GAME_DEBUG=true) */}

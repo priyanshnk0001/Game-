@@ -221,6 +221,9 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     const rest = restQuatsRef.current;
     if (!b.hips || rest.size === 0) return;
 
+    // Clamp frame delta to prevent physics explosion / delta spikes (max 50ms, min 1ms)
+    const dt = Math.min(Math.max(delta, 0.001), 0.05);
+
     // 1. Authoritative World Position and Rotation from Gameplay Controller
     if (rootGroupRef.current) {
       rootGroupRef.current.position.set(...player.position);
@@ -232,25 +235,25 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     const dz = player.position[2] - prevPosRef.current.z;
     const horizontalDistMoved = Math.hypot(dx, dz);
     prevPosRef.current.set(...player.position);
-    const speed = horizontalDistMoved / Math.max(0.0001, delta);
+    const speed = horizontalDistMoved / dt;
     const isMoving = speed > 0.12 && !player.isDead;
     const isSprinting = player.isSprinting && isMoving && speed > 2.5;
 
     // Locomotion and Sprint smooth blend weights (prevents any pose snapping)
-    locoBlendRef.current = THREE.MathUtils.lerp(locoBlendRef.current, isMoving ? 1.0 : 0.0, Math.min(1, delta * 10));
-    sprintBlendRef.current = THREE.MathUtils.lerp(sprintBlendRef.current, isSprinting ? 1.0 : 0.0, Math.min(1, delta * 8));
+    locoBlendRef.current = THREE.MathUtils.lerp(locoBlendRef.current, isMoving ? 1.0 : 0.0, Math.min(1, dt * 10));
+    sprintBlendRef.current = THREE.MathUtils.lerp(sprintBlendRef.current, isSprinting ? 1.0 : 0.0, Math.min(1, dt * 8));
     const locoW = locoBlendRef.current;
     const sprintW = sprintBlendRef.current;
 
     // Advance breath and gait timers
-    breathTimeRef.current += delta;
+    breathTimeRef.current += dt;
 
     // Calibrated Human Stride Cadence:
     // Stride length ~1.65m (walk) expanding to ~2.15m (sprint).
     // Stride frequency directly matches travel distance to completely eliminate foot sliding/skating.
     const currentStrideLen = THREE.MathUtils.lerp(5.15, 2.15, sprintW);
     const gaitFreq = isMoving ? (speed / currentStrideLen) * Math.PI * 2 : 0;
-    gaitPhaseRef.current = (gaitPhaseRef.current + delta * gaitFreq) % (Math.PI * 2);
+    gaitPhaseRef.current = (gaitPhaseRef.current + dt * gaitFreq) % (Math.PI * 2);
     const gp = gaitPhaseRef.current;
 
     // Pelvis Dynamics:
@@ -264,29 +267,29 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     // Stance transition smoothing: standing (0.0), crouch (1.0), prone (1.0)
     const targetCrouch = player.isCrouching && !player.isDead ? 1.0 : 0.0;
     const targetProne = player.isProne && !player.isDead ? 1.0 : 0.0;
-    crouchProgressRef.current = THREE.MathUtils.lerp(crouchProgressRef.current, targetCrouch, delta * 8);
-    proneProgressRef.current = THREE.MathUtils.lerp(proneProgressRef.current, targetProne, delta * 6);
+    crouchProgressRef.current = THREE.MathUtils.lerp(crouchProgressRef.current, targetCrouch, Math.min(1, dt * 8));
+    proneProgressRef.current = THREE.MathUtils.lerp(proneProgressRef.current, targetProne, Math.min(1, dt * 6));
     const crouchT = crouchProgressRef.current;
     const proneT = proneProgressRef.current;
 
     // Weapon state transition smoothing
     const isSlot1Ready = player.activeSlot === 1 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
     const isSlot2Ready = player.activeSlot === 2 && player.weaponState === 'ready' && !player.isDead && !player.isVaulting && !player.isMantling;
-    weaponTransition1Ref.current = THREE.MathUtils.lerp(weaponTransition1Ref.current, isSlot1Ready ? 1.0 : 0.0, delta * 10);
-    weaponTransition2Ref.current = THREE.MathUtils.lerp(weaponTransition2Ref.current, isSlot2Ready ? 1.0 : 0.0, delta * 10);
+    weaponTransition1Ref.current = THREE.MathUtils.lerp(weaponTransition1Ref.current, isSlot1Ready ? 1.0 : 0.0, Math.min(1, dt * 10));
+    weaponTransition2Ref.current = THREE.MathUtils.lerp(weaponTransition2Ref.current, isSlot2Ready ? 1.0 : 0.0, Math.min(1, dt * 10));
     const t1 = weaponTransition1Ref.current;
     const t2 = weaponTransition2Ref.current;
     const tWeapon = Math.max(t1, t2);
 
     const targetAim = player.isAiming && player.weaponState === 'ready' && !player.isDead ? 1.0 : 0.0;
-    aimProgressRef.current = THREE.MathUtils.lerp(aimProgressRef.current, targetAim, delta * 12);
+    aimProgressRef.current = THREE.MathUtils.lerp(aimProgressRef.current, targetAim, Math.min(1, dt * 12));
     const aimT = aimProgressRef.current;
 
     // Weapon recoil kick impulse decay
     if (player.isFiring && !player.isDead) {
       recoilKickRef.current = Math.min(1.0, recoilKickRef.current + 0.35);
     } else {
-      recoilKickRef.current = THREE.MathUtils.lerp(recoilKickRef.current, 0.0, delta * 14);
+      recoilKickRef.current = THREE.MathUtils.lerp(recoilKickRef.current, 0.0, Math.min(1, dt * 14));
     }
     const kick = recoilKickRef.current;
 
@@ -298,30 +301,30 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
     if (characterGroupRef.current) {
       if (player.isDead) {
         // Natural death pose: smoothly tilt onto back/side
-        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, -Math.PI / 2, delta * 8);
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, -Math.PI / 2, Math.min(1, dt * 8));
         characterGroupRef.current.rotation.y = 0;
         characterGroupRef.current.position.set(0, 0.15, 0);
       } else if (isDiving) {
         // Underwater diving streamlined posture
-        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, 1.25, delta * 6);
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, 1.25, Math.min(1, dt * 6));
         characterGroupRef.current.rotation.y = 0;
         characterGroupRef.current.position.set(0, 0, 0);
       } else if (isInWater) {
         // Surface swimming forward pitch
-        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, 1.35, delta * 6);
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, 1.35, Math.min(1, dt * 6));
         characterGroupRef.current.rotation.y = 0;
         characterGroupRef.current.position.set(0, -0.20, 0);
       } else if (player.isMantling || player.isVaulting) {
         // Vault / mantle forward push
         const mp = player.mantleProgress ?? player.vaultProgress ?? 0.5;
         const mantlePitch = mp < 0.3 ? 0.20 : mp < 0.7 ? 0.45 : 0.10;
-        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, mantlePitch, delta * 10);
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, mantlePitch, Math.min(1, dt * 10));
         characterGroupRef.current.rotation.y = 0;
         characterGroupRef.current.position.set(0, 0, 0);
       } else {
         // Seamless continuous blend: Standing -> Crouch -> Prone
         const targetRotX = (Math.PI / 2) * proneT;
-        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, targetRotX, delta * 8);
+        characterGroupRef.current.rotation.x = THREE.MathUtils.lerp(characterGroupRef.current.rotation.x, targetRotX, Math.min(1, dt * 8));
         characterGroupRef.current.rotation.y = 0;
 
         // Vertical and depth offsets:
@@ -378,24 +381,31 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
       if (!characterGroupRef.current) return;
       characterGroupRef.current.updateMatrixWorld(true);
 
-      const contactPoints = [
-        { bone: b.leftFoot, radius: 0.080 },
-        { bone: b.rightFoot, radius: 0.080 },
-        { bone: b.leftToeBase, radius: 0.040 },
-        { bone: b.rightToeBase, radius: 0.040 },
-        { bone: b.leftToeEnd, radius: 0.025 },
-        { bone: b.rightToeEnd, radius: 0.025 },
-        { bone: b.leftLeg, radius: 0.080 },
-        { bone: b.rightLeg, radius: 0.080 },
-        { bone: b.leftUpLeg, radius: 0.090 },
-        { bone: b.rightUpLeg, radius: 0.090 },
-        { bone: b.hips, radius: 0.110 },
-        { bone: b.spine, radius: 0.110 },
-        { bone: b.leftForeArm, radius: 0.055 },
-        { bone: b.rightForeArm, radius: 0.055 },
-        { bone: b.leftHand, radius: 0.045 },
-        { bone: b.rightHand, radius: 0.045 },
-      ];
+      const contactPoints = (!player.isDead && isMoving)
+        ? [
+            { bone: b.leftFoot, radius: 0.080 },
+            { bone: b.rightFoot, radius: 0.080 },
+            { bone: b.leftToeBase, radius: 0.040 },
+            { bone: b.rightToeBase, radius: 0.040 },
+          ]
+        : [
+            { bone: b.leftFoot, radius: 0.080 },
+            { bone: b.rightFoot, radius: 0.080 },
+            { bone: b.leftToeBase, radius: 0.040 },
+            { bone: b.rightToeBase, radius: 0.040 },
+            { bone: b.leftToeEnd, radius: 0.025 },
+            { bone: b.rightToeEnd, radius: 0.025 },
+            { bone: b.leftLeg, radius: 0.080 },
+            { bone: b.rightLeg, radius: 0.080 },
+            { bone: b.leftUpLeg, radius: 0.090 },
+            { bone: b.rightUpLeg, radius: 0.090 },
+            { bone: b.hips, radius: 0.110 },
+            { bone: b.spine, radius: 0.110 },
+            { bone: b.leftForeArm, radius: 0.055 },
+            { bone: b.rightForeArm, radius: 0.055 },
+            { bone: b.leftHand, radius: 0.045 },
+            { bone: b.rightHand, radius: 0.045 },
+          ];
 
       const GROUND_MARGIN = 0.002; // 2mm solid contact margin
       let minDelta = Infinity;
@@ -525,12 +535,12 @@ export const RealisticPlayer: React.FC<RealisticPlayerProps> = ({ player, isLoca
 
       const clampedDelta = Math.max(-0.40, Math.min(0.40, minDelta));
 
-      if (player.isGrounded || player.isDead) {
+      if (player.isDead) {
         // Vertically place the complete character mesh container so the lowest contact point rests naturally on the ground
         characterGroupRef.current.position.y -= clampedDelta;
         characterGroupRef.current.updateMatrixWorld(true);
       } else if (clampedDelta < 0) {
-        // While airborne, prevent clipping into terrain surfaces
+        // Prevent clipping into terrain surfaces (only elevate if penetrating)
         characterGroupRef.current.position.y -= clampedDelta;
         characterGroupRef.current.updateMatrixWorld(true);
       }
